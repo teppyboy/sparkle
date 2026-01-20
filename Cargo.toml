@@ -7,6 +7,10 @@ description = "A Playwright implementation in Rust, powered by thirtyfour"
 license = "Apache-2.0"
 repository = "https://github.com/tretrauit/sparkle"
 
+[[bin]]
+name = "sparkle"
+path = "src/bin/sparkle.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -33,6 +37,16 @@ derive_builder = "0.20"
 url = "2.5"
 regex = "1.10"
 chrono = "0.4"
+
+# CLI dependencies
+clap = { version = "4.5", features = ["derive", "color"] }
+reqwest = { version = "0.13", features = ["stream", "json"] }
+indicatif = "0.18"
+tokio-util = { version = "0.7", features = ["compat"] }
+flate2 = "1.0"
+tar = "0.4"
+zip = "7.2"
+directories = "6.0"
 
 [dev-dependencies]
 tokio-test = "0.4"

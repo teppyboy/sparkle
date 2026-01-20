@@ -15,6 +15,7 @@ Sparkle provides a high-level, type-safe API for browser automation in Rust, clo
 - ✅ **Error Handling**: Comprehensive error types with Result pattern
 - ✅ **Locator API**: Auto-waiting and retrying element selectors
 - ✅ **Element Interactions**: Click, fill, type, and more
+- ✅ **CLI Tool**: Download and manage browsers automatically
 - ✅ **Browser Support**: Chromium/Chrome (Firefox and WebKit planned)
 - ✅ **Rust-Idiomatic**: Following Rust best practices and conventions
 - 🚧 **Full API Parity**: Implementing complete Playwright API (in progress)
@@ -31,9 +32,24 @@ tokio = { version = "1", features = ["full"] }
 
 ## Prerequisites
 
-Sparkle uses WebDriver under the hood, so you need to have the appropriate WebDriver binary running:
+Sparkle provides a CLI tool to automatically download and install Chrome and ChromeDriver:
 
-### ChromeDriver (for Chromium/Chrome)
+### Option 1: Automatic Installation (Recommended)
+
+```bash
+# Install Sparkle CLI
+cargo install --path .
+
+# Install Chrome and ChromeDriver
+sparkle install chromium
+
+# Or install everything
+sparkle install all
+```
+
+### Option 2: Manual Installation
+
+If you prefer to install manually:
 
 1. Download ChromeDriver from https://chromedriver.chromium.org/downloads
 2. Run it:
@@ -130,6 +146,60 @@ page.goto("https://example.com", Default::default()).await?;
 browser.close().await?;
 ```
 
+## CLI Tool
+
+Sparkle includes a command-line tool for managing browser installations:
+
+### Installation
+
+```bash
+# Install the Sparkle CLI
+cargo install --path .
+
+# Or build it locally
+cargo build --bin sparkle --release
+```
+
+### Commands
+
+**Install browsers:**
+```bash
+# Install Chrome and ChromeDriver
+sparkle install chromium
+
+# Install with all dependencies
+sparkle install all
+
+# Force reinstall
+sparkle install chromium --force
+```
+
+**List installed browsers:**
+```bash
+sparkle list
+```
+
+**Uninstall browsers:**
+```bash
+# Uninstall Chrome
+sparkle uninstall chrome
+
+# Uninstall ChromeDriver
+sparkle uninstall chromedriver
+
+# Uninstall everything
+sparkle uninstall all
+```
+
+### Installation Locations
+
+Browsers are installed to platform-specific directories:
+- **Windows**: `%APPDATA%\sparkle\browsers`
+- **Linux**: `~/.local/share/sparkle/browsers`
+- **macOS**: `~/Library/Application Support/com.sparkle.browsers`
+
+The CLI automatically detects your platform and downloads the appropriate binaries from Google's Chrome for Testing repository.
+
 ## Architecture
 
 ```
@@ -164,6 +234,11 @@ sparkle/
 - [x] JavaScript evaluation
 - [x] WebDriver adapter layer
 - [x] Comprehensive option builders
+- [x] **CLI tool for browser management**
+  - [x] Automatic Chrome/ChromeDriver download
+  - [x] Platform detection (Windows, Linux, macOS, ARM64)
+  - [x] Install/uninstall commands
+  - [x] Version management
 
 ### In Progress 🚧
 - [ ] Network interception
@@ -176,7 +251,7 @@ sparkle/
 - [ ] Complete API parity with Playwright Python
 - [ ] Integration tests with real browsers
 - [ ] Performance optimizations
-- [ ] Browser installation scripts
+- [ ] Auto-start ChromeDriver from CLI-installed browsers
 
 ## Roadmap
 
@@ -184,13 +259,14 @@ See the detailed implementation plan in the project documentation. The implement
 
 1. **Phase 1**: Foundation (Core types, Browser lifecycle) - ✅ Complete
 2. **Phase 2**: Page automation (Locators, element interactions) - ✅ Complete
-3. **Phase 3**: Input devices (Keyboard, Mouse, Touch) - 🚧 Next
-4. **Phase 4**: Advanced features (Network, Dialogs, Downloads)
-5. **Phase 5**: Context features (Cookies, Storage, Emulation)
-6. **Phase 6**: Frame support
-7. **Phase 7**: API testing
-8. **Phase 8**: Recording & Debugging
-9. **Phase 9**: Multi-browser support
+3. **Phase CLI**: Browser installation CLI - ✅ Complete
+4. **Phase 3**: Input devices (Keyboard, Mouse, Touch) - 🚧 Next
+5. **Phase 4**: Advanced features (Network, Dialogs, Downloads)
+6. **Phase 5**: Context features (Cookies, Storage, Emulation)
+7. **Phase 6**: Frame support
+8. **Phase 7**: API testing
+9. **Phase 8**: Recording & Debugging
+10. **Phase 9**: Multi-browser support
 
 ## Contributing
 
@@ -211,7 +287,11 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 ### Building
 
 ```bash
+# Build the library
 cargo build
+
+# Build the CLI tool
+cargo build --bin sparkle
 ```
 
 ### Running Tests
@@ -220,14 +300,31 @@ cargo build
 cargo test
 ```
 
+### Using the CLI in Development
+
+```bash
+# Install browsers for development
+cargo run --bin sparkle -- install chromium
+
+# List installed browsers
+cargo run --bin sparkle -- list
+
+# Run examples with installed browsers
+cargo run --example basic_navigation
+```
+
 ### Running Examples
 
 ```bash
-# Start ChromeDriver in another terminal
+# Option 1: Use the CLI to install browsers first
+cargo run --bin sparkle -- install chromium
+
+# Option 2: Start ChromeDriver manually in another terminal
 chromedriver --port=9515
 
-# Run example
+# Then run examples
 cargo run --example basic_navigation
+cargo run --example locator_demo
 ```
 
 ## FAQ
