@@ -124,10 +124,20 @@ impl Browser {
     }
 
     /// Get the browser's version
+    ///
+    /// Returns the browser version string (e.g., "145.0.7632.6")
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Browser;
+    /// # async fn example(browser: &Browser) -> sparkle::core::Result<()> {
+    /// let version = browser.version().await?;
+    /// println!("Browser version: {}", version);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn version(&self) -> Result<String> {
-        // This would query the browser version through the WebDriver
-        // For now, return a placeholder
-        Ok("Chromium 120.0.0".to_string())
+        self.adapter.browser_version().await
     }
 }
 

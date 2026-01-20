@@ -50,6 +50,10 @@ async fn main() -> Result<()> {
     // Launch Chromium browser
     let browser = playwright.chromium().launch(options).await?;
     println!("Browser launched");
+    
+    // Get browser version
+    let version = browser.version().await?;
+    println!("Browser version: {}", version);
 
     // Create a new page
     let page = browser.new_page().await?;

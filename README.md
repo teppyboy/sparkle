@@ -1,6 +1,10 @@
 # Sparkle
 
-> A Playwright-like browser automation library for Rust, powered by WebDriver
+> [!WARNING]
+> This project is mostly "vibe-coded", unknown bugs will appear at any time. While I try to fix it (either by vibing or actually coding),
+> not all bugs are guaranteed to be fixed.
+
+> A reimplementation of Playwright written in Rust, powered by `thirtyfour`.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 

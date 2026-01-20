@@ -157,6 +157,63 @@ impl WebDriverAdapter {
     pub async fn is_closed(&self) -> bool {
         self.driver.read().await.is_none()
     }
+
+    /// Get the browser version
+    ///
+    /// Returns the browser version string (e.g., "145.0.7632.6")
+    /// Uses Chrome DevTools Protocol for accurate version information.
+    pub async fn browser_version(&self) -> Result<String> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        // Try Chrome DevTools Protocol first (works for Chrome/Chromium/Edge)
+        // This gives us the most accurate version information
+        use thirtyfour::extensions::cdp::ChromeDevTools;
+        let dev_tools = ChromeDevTools::new(driver.handle.clone());
+        
+        if let Ok(version_info) = dev_tools.execute_cdp("Browser.getVersion").await {
+            // Extract browser version from CDP response
+            // The "product" field contains "Chrome/145.0.7632.6" format
+            if let Some(product) = version_info.get("product") {
+                if let Some(product_str) = product.as_str() {
+                    // Extract version number from "Chrome/145.0.7632.6"
+                    if let Some(version) = product_str.split('/').nth(1) {
+                        return Ok(version.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Fallback: Use JavaScript to get browser version from user agent
+        // This works across all browsers (Chrome, Firefox, Safari, Edge, etc.)
+        let result = self.execute_script("return navigator.userAgent").await?;
+        if let Some(ua) = result.as_str() {
+            // Try to extract version from user agent
+            // Chrome UA format: "... Chrome/145.0.7632.6 ..."
+            // Edge UA format: "... Edg/145.0.7632.6 ..."
+            if let Some(start) = ua.find("Chrome/") {
+                let version_start = start + 7; // Length of "Chrome/"
+                if let Some(end) = ua[version_start..].find(' ') {
+                    return Ok(ua[version_start..version_start + end].to_string());
+                } else {
+                    return Ok(ua[version_start..].to_string());
+                }
+            } else if let Some(start) = ua.find("Edg/") {
+                let version_start = start + 4; // Length of "Edg/"
+                if let Some(end) = ua[version_start..].find(' ') {
+                    return Ok(ua[version_start..version_start + end].to_string());
+                } else {
+                    return Ok(ua[version_start..].to_string());
+                }
+            }
+            
+            // Fallback to full user agent if we can't parse it
+            return Ok(ua.to_string());
+        }
+        
+        // If all else fails, return unknown
+        Ok("Unknown".to_string())
+    }
 }
 
 impl Drop for WebDriverAdapter {
