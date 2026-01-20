@@ -1,0 +1,178 @@
+//! WebDriver adapter layer
+//!
+//! This module provides an abstraction over thirtyfour to adapt it to Playwright's
+//! semantics and API patterns.
+
+use crate::core::{Error, Result};
+use std::sync::Arc;
+use thirtyfour::prelude::*;
+use tokio::sync::RwLock;
+
+/// Adapter wrapping the thirtyfour WebDriver
+///
+/// This struct provides a bridge between Playwright's API and thirtyfour's WebDriver,
+/// handling conversions and adapting behavior where needed.
+pub struct WebDriverAdapter {
+    driver: Arc<RwLock<Option<WebDriver>>>,
+}
+
+impl WebDriverAdapter {
+    /// Create a new WebDriver adapter from an existing driver
+    pub fn new(driver: WebDriver) -> Self {
+        Self {
+            driver: Arc::new(RwLock::new(Some(driver))),
+        }
+    }
+
+    /// Create a new WebDriver instance with the given capabilities
+    ///
+    /// # Arguments
+    /// * `url` - WebDriver server URL (e.g., "http://localhost:9515" for ChromeDriver)
+    /// * `capabilities` - Browser capabilities as a HashMap
+    pub async fn create(url: &str, capabilities: std::collections::HashMap<String, serde_json::Value>) -> Result<Self> {
+        // Convert HashMap to serde_json::Map
+        let caps_map: serde_json::Map<String, serde_json::Value> = 
+            capabilities.into_iter().collect();
+        let caps: Capabilities = caps_map.into();
+        let driver = WebDriver::new(url, caps).await?;
+        Ok(Self::new(driver))
+    }
+
+    /// Get a reference to the underlying WebDriver
+    ///
+    /// Returns an error if the driver has been closed
+    pub async fn driver(&self) -> Result<tokio::sync::RwLockReadGuard<'_, Option<WebDriver>>> {
+        let guard = self.driver.read().await;
+        if guard.is_none() {
+            return Err(Error::BrowserClosed);
+        }
+        Ok(guard)
+    }
+
+    /// Get a mutable reference to the underlying WebDriver
+    ///
+    /// Returns an error if the driver has been closed
+    pub async fn driver_mut(&self) -> Result<tokio::sync::RwLockWriteGuard<'_, Option<WebDriver>>> {
+        let guard = self.driver.write().await;
+        if guard.is_none() {
+            return Err(Error::BrowserClosed);
+        }
+        Ok(guard)
+    }
+
+    /// Execute an async closure with the WebDriver
+    ///
+    /// This is a convenience method to safely access the driver
+    pub async fn with_driver<F, T, Fut>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&WebDriver) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        f(driver).await
+    }
+
+    /// Navigate to a URL
+    pub async fn goto(&self, url: &str) -> Result<()> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        driver.goto(url).await?;
+        Ok(())
+    }
+
+    /// Get the current URL
+    pub async fn current_url(&self) -> Result<String> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let url = driver.current_url().await?;
+        Ok(url.to_string())
+    }
+
+    /// Get the page title
+    pub async fn title(&self) -> Result<String> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let title = driver.title().await?;
+        Ok(title)
+    }
+
+    /// Find an element by CSS selector
+    pub async fn find_element(&self, selector: &str) -> Result<WebElement> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let element = driver
+            .find(By::Css(selector))
+            .await
+            .map_err(|_| Error::element_not_found(selector))?;
+        Ok(element)
+    }
+
+    /// Find all elements matching a CSS selector
+    pub async fn find_elements(&self, selector: &str) -> Result<Vec<WebElement>> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let elements = driver.find_all(By::Css(selector)).await?;
+        Ok(elements)
+    }
+
+    /// Execute JavaScript in the browser context
+    pub async fn execute_script(&self, script: &str) -> Result<serde_json::Value> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let result = driver.execute(script, Vec::new()).await?;
+        Ok(result.json().clone())
+    }
+
+    /// Execute JavaScript with arguments
+    pub async fn execute_script_with_args(
+        &self,
+        script: &str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let result = driver.execute(script, args).await?;
+        Ok(result.json().clone())
+    }
+
+    /// Take a screenshot of the current page
+    pub async fn screenshot(&self) -> Result<Vec<u8>> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let screenshot = driver.screenshot_as_png().await?;
+        Ok(screenshot)
+    }
+
+    /// Close the browser and clean up
+    pub async fn close(&self) -> Result<()> {
+        let mut guard = self.driver.write().await;
+        if let Some(driver) = guard.take() {
+            driver.quit().await?;
+        }
+        Ok(())
+    }
+
+    /// Check if the driver is still active
+    pub async fn is_closed(&self) -> bool {
+        self.driver.read().await.is_none()
+    }
+}
+
+impl Drop for WebDriverAdapter {
+    fn drop(&mut self) {
+        // Note: We can't await in Drop, so we just mark it for cleanup
+        // The user should call close() explicitly for graceful shutdown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_adapter_closed_error() {
+        // Create a mock adapter (this would need a real WebDriver in practice)
+        // For now, just test that the structure compiles
+    }
+}
