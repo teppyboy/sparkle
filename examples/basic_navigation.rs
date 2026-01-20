@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
     // Create Playwright instance
     let playwright = Playwright::new().await?;
-    println!("✓ Playwright initialized");
+    println!("Playwright initialized");
 
     // Build launch options
     let options = LaunchOptionsBuilder::default()
@@ -49,11 +49,11 @@ async fn main() -> Result<()> {
 
     // Launch Chromium browser
     let browser = playwright.chromium().launch(options).await?;
-    println!("✓ Browser launched");
+    println!("Browser launched");
 
     // Create a new page
     let page = browser.new_page().await?;
-    println!("✓ Page created");
+    println!("Page created");
 
     // Navigate to example.com
     let navigation_opts = NavigationOptionsBuilder::default()
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         .unwrap();
     
     page.goto("https://example.com", navigation_opts).await?;
-    println!("✓ Navigated to example.com");
+    println!("Navigated to example.com");
 
     // Get the page title
     let title = page.title().await?;
@@ -75,11 +75,11 @@ async fn main() -> Result<()> {
     let screenshot = page.screenshot().await?;
     let screenshot_len = screenshot.len();
     std::fs::write("example.png", screenshot)?;
-    println!("✓ Screenshot saved to example.png ({} bytes)", screenshot_len);
+    println!("Screenshot saved to example.png ({} bytes)", screenshot_len);
 
     // Close the browser
     browser.close().await?;
-    println!("✓ Browser closed");
+    println!("Browser closed");
 
     println!("\nExample completed successfully!");
 

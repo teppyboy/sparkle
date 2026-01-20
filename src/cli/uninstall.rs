@@ -41,7 +41,7 @@ fn uninstall_chrome(install_dir: &PathBuf) -> Result<()> {
             if let Ok(file_name) = entry.file_name().into_string() {
                 if file_name.starts_with("chromium-") {
                     std::fs::remove_dir_all(entry.path())?;
-                    println!("✓ {} uninstalled", file_name);
+                    println!("{} uninstalled", file_name);
                     found = true;
                 }
             }
@@ -64,7 +64,7 @@ fn uninstall_chromedriver(install_dir: &PathBuf) -> Result<()> {
                     let driver_dir = entry.path().join("chromedriver");
                     if driver_dir.exists() {
                         std::fs::remove_dir_all(&driver_dir)?;
-                        println!("✓ ChromeDriver from {} uninstalled", file_name);
+                        println!("ChromeDriver from {} uninstalled", file_name);
                         found = true;
                     }
                 }

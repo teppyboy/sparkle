@@ -31,10 +31,10 @@ pub async fn run() -> Result<()> {
     }
 
     if chromium_versions.is_empty() {
-        println!("✗ Chromium (not installed)");
+        println!("Chromium (not installed)");
     } else {
         chromium_versions.sort_by(|a, b| b.0.cmp(&a.0));
-        println!("✓ Chromium ({} revision(s) installed)", chromium_versions.len());
+        println!("Chromium ({} revision(s) installed)", chromium_versions.len());
         for (revision, path, has_driver) in &chromium_versions {
             let driver_status = if *has_driver { " [with ChromeDriver]" } else { "" };
             println!("  - Revision {}{}: {:?}", revision, driver_status, path);
