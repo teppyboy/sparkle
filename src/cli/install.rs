@@ -5,7 +5,7 @@ use anyhow::Result;
 use directories::ProjectDirs;
 use std::path::PathBuf;
 
-pub async fn run(browser: &str, with_deps: bool, force: bool) -> Result<()> {
+pub async fn run(browser: &str, skip_driver: bool, force: bool) -> Result<()> {
     println!("Sparkle Browser Installer");
     println!("=========================\n");
 
@@ -23,7 +23,8 @@ pub async fn run(browser: &str, with_deps: bool, force: bool) -> Result<()> {
     match browser.to_lowercase().as_str() {
         "chromium" | "chrome" => {
             install_chrome(&downloader, &platform, &version, &install_dir, force).await?;
-            if with_deps {
+            // Install ChromeDriver by default unless --skip-driver is specified
+            if !skip_driver {
                 install_chromedriver(&downloader, &platform, &version, &install_dir, force).await?;
             }
         }

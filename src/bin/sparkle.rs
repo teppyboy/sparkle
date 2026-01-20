@@ -26,9 +26,9 @@ enum Commands {
         #[arg(default_value = "chromium")]
         browser: String,
 
-        /// Install with dependencies (ChromeDriver for Chrome)
-        #[arg(long, default_value_t = true)]
-        with_deps: bool,
+        /// Skip ChromeDriver installation (ChromeDriver is installed by default)
+        #[arg(long, default_value_t = false)]
+        skip_driver: bool,
 
         /// Force reinstall even if already installed
         #[arg(long)]
@@ -55,9 +55,9 @@ async fn main() {
     let result = match cli.command {
         Commands::Install {
             browser,
-            with_deps,
+            skip_driver,
             force,
-        } => install::run(&browser, with_deps, force).await,
+        } => install::run(&browser, skip_driver, force).await,
 
         Commands::List => list::run().await,
 
