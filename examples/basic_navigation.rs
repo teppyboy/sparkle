@@ -9,12 +9,23 @@
 //! - Closing the browser
 //!
 //! # Prerequisites
-//! You need ChromeDriver running on localhost:9515
-//! Download from: https://chromedriver.chromium.org/downloads
-//!
-//! Run ChromeDriver:
+//! ChromeDriver will be automatically launched from the installed location.
+//! 
+//! Install ChromeDriver if not already installed:
 //! ```bash
-//! chromedriver --port=9515
+//! sparkle install chrome
+//! ```
+//!
+//! # Custom ChromeDriver
+//! You can optionally specify a custom ChromeDriver:
+//! - Set `CHROMEDRIVER_PATH` environment variable to use a specific ChromeDriver executable
+//! - Set `CHROMEDRIVER_URL` environment variable to connect to an already-running ChromeDriver
+//! 
+//! Example:
+//! ```bash
+//! export CHROMEDRIVER_PATH=/path/to/chromedriver
+//! # or
+//! export CHROMEDRIVER_URL=http://localhost:9515
 //! ```
 
 use sparkle::prelude::*;

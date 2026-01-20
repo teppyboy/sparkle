@@ -4,7 +4,8 @@
 
 use crate::async_api::browser::Browser;
 use crate::core::{Error, LaunchOptions, Result};
-use crate::driver::{ChromiumCapabilities, WebDriverAdapter};
+use crate::driver::{ChromeDriverProcess, ChromiumCapabilities, WebDriverAdapter};
+use std::path::PathBuf;
 
 /// BrowserType provides methods to launch a specific browser
 ///
@@ -108,15 +109,29 @@ impl BrowserType {
 
         let capabilities = caps.build();
 
-        // Determine ChromeDriver URL
-        let chromedriver_url = std::env::var("CHROMEDRIVER_URL")
-            .unwrap_or_else(|_| "http://localhost:9515".to_string());
+        // Determine ChromeDriver URL or launch ChromeDriver automatically
+        let (chromedriver_url, driver_process) = if let Ok(url) = std::env::var("CHROMEDRIVER_URL") {
+            // Use custom ChromeDriver URL from environment variable
+            (url, None)
+        } else {
+            // Check if custom ChromeDriver path is provided via CHROMEDRIVER_PATH
+            let driver_path = std::env::var("CHROMEDRIVER_PATH")
+                .ok()
+                .map(PathBuf::from);
+            
+            // Launch ChromeDriver automatically from installed location or custom path
+            let process = ChromeDriverProcess::launch(driver_path, 9515)
+                .await
+                .map_err(|e| Error::internal(format!("Failed to launch ChromeDriver: {}", e)))?;
+            let url = process.url().to_string();
+            (url, Some(process))
+        };
 
         // Create WebDriver adapter
         let adapter = WebDriverAdapter::create(&chromedriver_url, capabilities).await?;
 
-        // Create and return browser
-        Ok(Browser::new(adapter))
+        // Create and return browser with driver process
+        Ok(Browser::new(adapter, driver_process))
     }
 
     /// Get the path to the browser executable

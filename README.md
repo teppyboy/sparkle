@@ -32,7 +32,7 @@ tokio = { version = "1", features = ["full"] }
 
 ## Prerequisites
 
-Sparkle provides a CLI tool to automatically download and install Chrome and ChromeDriver:
+Sparkle automatically manages ChromeDriver for you! When you launch a browser, ChromeDriver will be started automatically from the installed location.
 
 ### Option 1: Automatic Installation (Recommended)
 
@@ -41,23 +41,42 @@ Sparkle provides a CLI tool to automatically download and install Chrome and Chr
 cargo install --path .
 
 # Install Chrome and ChromeDriver
-sparkle install chromium
+sparkle install chrome
 
 # Or install everything
 sparkle install all
 ```
 
-### Option 2: Manual Installation
+Sparkle will automatically:
+- Download Chrome and ChromeDriver to the Playwright cache directory
+- Launch ChromeDriver when you create a browser instance
+- Shut down ChromeDriver when you close the browser
 
-If you prefer to install manually:
+### Option 2: Custom ChromeDriver
+
+You can specify a custom ChromeDriver location or URL:
+
+```bash
+# Use a custom ChromeDriver executable
+export CHROMEDRIVER_PATH=/path/to/chromedriver
+
+# Or connect to an already-running ChromeDriver
+export CHROMEDRIVER_URL=http://localhost:9515
+```
+
+### Option 3: Manual ChromeDriver Management
+
+If you prefer to manage ChromeDriver manually:
 
 1. Download ChromeDriver from https://chromedriver.chromium.org/downloads
 2. Run it:
    ```bash
    chromedriver --port=9515
    ```
-
-Alternatively, set the `CHROMEDRIVER_URL` environment variable to point to your WebDriver endpoint.
+3. Set the environment variable:
+   ```bash
+   export CHROMEDRIVER_URL=http://localhost:9515
+   ```
 
 ## Quick Start
 
@@ -114,7 +133,7 @@ See the [`examples/`](examples/) directory for more examples:
 
 Run an example:
 ```bash
-# Make sure ChromeDriver is running first
+# ChromeDriver will be auto-launched from the installed location
 cargo run --example basic_navigation
 cargo run --example locator_demo
 ```
@@ -164,14 +183,17 @@ cargo build --bin sparkle --release
 
 **Install browsers:**
 ```bash
-# Install Chrome and ChromeDriver
-sparkle install chromium
+# Install Chrome and ChromeDriver (ChromeDriver is installed by default)
+sparkle install chrome
+
+# Install Chrome without ChromeDriver
+sparkle install chrome --skip-driver
 
 # Install with all dependencies
 sparkle install all
 
 # Force reinstall
-sparkle install chromium --force
+sparkle install chrome --force
 ```
 
 **List installed browsers:**
@@ -193,10 +215,12 @@ sparkle uninstall all
 
 ### Installation Locations
 
-Browsers are installed to platform-specific directories:
-- **Windows**: `%APPDATA%\sparkle\browsers`
-- **Linux**: `~/.local/share/sparkle/browsers`
-- **macOS**: `~/Library/Application Support/com.sparkle.browsers`
+Browsers are installed to Playwright's cache directories (for compatibility with Playwright):
+- **Windows**: `%LOCALAPPDATA%\ms-playwright`
+- **Linux**: `~/.cache/ms-playwright`
+- **macOS**: `~/Library/Caches/ms-playwright`
+
+This allows Sparkle to reuse browsers downloaded by Playwright and vice versa.
 
 The CLI automatically detects your platform and downloads the appropriate binaries from Google's Chrome for Testing repository.
 
@@ -239,6 +263,8 @@ sparkle/
   - [x] Platform detection (Windows, Linux, macOS, ARM64)
   - [x] Install/uninstall commands
   - [x] Version management
+  - [x] Playwright cache directory compatibility
+  - [x] Auto-launch ChromeDriver from installed location
 
 ### In Progress 🚧
 - [ ] Network interception
@@ -251,7 +277,6 @@ sparkle/
 - [ ] Complete API parity with Playwright Python
 - [ ] Integration tests with real browsers
 - [ ] Performance optimizations
-- [ ] Auto-start ChromeDriver from CLI-installed browsers
 
 ## Roadmap
 
@@ -316,11 +341,12 @@ cargo run --example basic_navigation
 ### Running Examples
 
 ```bash
-# Option 1: Use the CLI to install browsers first
-cargo run --bin sparkle -- install chromium
+# Option 1: Use the CLI to install browsers first (ChromeDriver will auto-launch)
+cargo run --bin sparkle -- install chrome
 
 # Option 2: Start ChromeDriver manually in another terminal
 chromedriver --port=9515
+export CHROMEDRIVER_URL=http://localhost:9515
 
 # Then run examples
 cargo run --example basic_navigation

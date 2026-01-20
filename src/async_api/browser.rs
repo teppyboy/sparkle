@@ -4,7 +4,7 @@
 
 use crate::async_api::Locator;
 use crate::core::{BrowserContextOptions, ClickOptions, Error, Result, TypeOptions};
-use crate::driver::WebDriverAdapter;
+use crate::driver::{ChromeDriverProcess, WebDriverAdapter};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -28,16 +28,19 @@ use tokio::sync::RwLock;
 pub struct Browser {
     adapter: Arc<WebDriverAdapter>,
     contexts: Arc<RwLock<Vec<BrowserContext>>>,
+    #[allow(dead_code)]
+    driver_process: Option<ChromeDriverProcess>,
 }
 
 impl Browser {
     /// Create a new Browser instance
     ///
     /// This is typically not called directly; use `BrowserType::launch()` instead.
-    pub(crate) fn new(adapter: WebDriverAdapter) -> Self {
+    pub(crate) fn new(adapter: WebDriverAdapter, driver_process: Option<ChromeDriverProcess>) -> Self {
         Self {
             adapter: Arc::new(adapter),
             contexts: Arc::new(RwLock::new(Vec::new())),
+            driver_process,
         }
     }
 

@@ -1,7 +1,6 @@
 //! List command implementation
 
 use anyhow::Result;
-use directories::ProjectDirs;
 use std::path::PathBuf;
 
 pub async fn run() -> Result<()> {
@@ -37,11 +36,23 @@ pub async fn run() -> Result<()> {
 fn get_install_dir() -> Result<PathBuf> {
     // Use Playwright's cache directory structure for compatibility
     // This allows reusing browsers downloaded by Playwright
-    if let Some(proj_dirs) = ProjectDirs::from("ms-playwright", "", "") {
-        Ok(proj_dirs.cache_dir().to_path_buf())
+    
+    // Get the platform-specific cache directory
+    let cache_base = if cfg!(target_os = "windows") {
+        // Windows: %LOCALAPPDATA%
+        std::env::var("LOCALAPPDATA")
+            .or_else(|_| std::env::var("APPDATA"))
+            .map(PathBuf::from)?
+    } else if cfg!(target_os = "macos") {
+        // macOS: ~/Library/Caches
+        let home = std::env::var("HOME")?;
+        PathBuf::from(home).join("Library").join("Caches")
     } else {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))?;
-        Ok(PathBuf::from(home).join(".cache").join("ms-playwright"))
-    }
+        // Linux/Unix: ~/.cache
+        let home = std::env::var("HOME")?;
+        PathBuf::from(home).join(".cache")
+    };
+    
+    // Append ms-playwright to match Playwright's structure
+    Ok(cache_base.join("ms-playwright"))
 }
