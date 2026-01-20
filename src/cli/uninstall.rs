@@ -57,11 +57,13 @@ fn uninstall_chromedriver(install_dir: &PathBuf) -> Result<()> {
 }
 
 fn get_install_dir() -> Result<PathBuf> {
-    if let Some(proj_dirs) = ProjectDirs::from("com", "sparkle", "browsers") {
-        Ok(proj_dirs.data_dir().to_path_buf())
+    // Use Playwright's cache directory structure for compatibility
+    // This allows reusing browsers downloaded by Playwright
+    if let Some(proj_dirs) = ProjectDirs::from("ms-playwright", "", "") {
+        Ok(proj_dirs.cache_dir().to_path_buf())
     } else {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))?;
-        Ok(PathBuf::from(home).join(".sparkle").join("browsers"))
+        Ok(PathBuf::from(home).join(".cache").join("ms-playwright"))
     }
 }
