@@ -5,11 +5,13 @@
 
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Builder for Chromium capabilities
 pub struct ChromiumCapabilities {
     headless: bool,
     args: Vec<String>,
+    binary: Option<PathBuf>,
 }
 
 impl ChromiumCapabilities {
@@ -18,6 +20,7 @@ impl ChromiumCapabilities {
         Self {
             headless: true,
             args: Vec::new(),
+            binary: None,
         }
     }
 
@@ -39,6 +42,12 @@ impl ChromiumCapabilities {
         self
     }
 
+    /// Set the Chrome binary path
+    pub fn binary(mut self, binary: PathBuf) -> Self {
+        self.binary = Some(binary);
+        self
+    }
+
     /// Build the capabilities as a HashMap
     pub fn build(self) -> HashMap<String, serde_json::Value> {
         let mut args = self.args;
@@ -48,9 +57,16 @@ impl ChromiumCapabilities {
             args.push("--disable-gpu".to_string());
         }
 
-        let chrome_options = json!({
+        let mut chrome_options = json!({
             "args": args,
         });
+
+        // Add binary path if specified
+        if let Some(binary) = self.binary {
+            if let Some(obj) = chrome_options.as_object_mut() {
+                obj.insert("binary".to_string(), json!(binary.to_string_lossy()));
+            }
+        }
 
         let mut caps = HashMap::new();
         caps.insert("browserName".to_string(), json!("chrome"));

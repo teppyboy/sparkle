@@ -107,6 +107,12 @@ impl BrowserType {
             .arg("--disable-dev-shm-usage")
             .arg("--disable-blink-features=AutomationControlled");
 
+        // Find and set Chrome binary path from installed location
+        // This will use the latest versioned Chrome installation
+        if let Ok(chrome_path) = ChromeDriverProcess::find_installed_chrome() {
+            caps = caps.binary(chrome_path);
+        }
+
         let capabilities = caps.build();
 
         // Determine ChromeDriver URL or launch ChromeDriver automatically

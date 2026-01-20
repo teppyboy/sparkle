@@ -123,31 +123,35 @@ impl Downloader {
     pub async fn install_chrome(&self, version: &str, platform_url: &str, install_dir: &Path) -> Result<PathBuf> {
         println!("Installing Chrome version {}", version);
 
-        let download_path = install_dir.join("chrome.zip");
+        // Create a temp directory for download
+        let temp_dir = install_dir.parent().unwrap_or(install_dir);
+        let download_path = temp_dir.join(format!("chrome-{}.zip", version));
         self.download_file(platform_url, &download_path).await?;
 
-        let extract_dir = install_dir.join("chrome");
-        self.extract_zip(&download_path, &extract_dir)?;
+        // Extract directly to install_dir
+        self.extract_zip(&download_path, install_dir)?;
 
         fs::remove_file(&download_path)?;
 
         println!("Chrome installed successfully");
-        Ok(extract_dir)
+        Ok(install_dir.to_path_buf())
     }
 
     pub async fn install_chromedriver(&self, version: &str, platform_url: &str, install_dir: &Path) -> Result<PathBuf> {
         println!("Installing ChromeDriver version {}", version);
 
-        let download_path = install_dir.join("chromedriver.zip");
+        // Create a temp directory for download
+        let temp_dir = install_dir.parent().unwrap_or(install_dir);
+        let download_path = temp_dir.join(format!("chromedriver-{}.zip", version));
         self.download_file(platform_url, &download_path).await?;
 
-        let extract_dir = install_dir.join("chromedriver");
-        self.extract_zip(&download_path, &extract_dir)?;
+        // Extract directly to install_dir
+        self.extract_zip(&download_path, install_dir)?;
 
         fs::remove_file(&download_path)?;
 
         println!("ChromeDriver installed successfully");
-        Ok(extract_dir)
+        Ok(install_dir.to_path_buf())
     }
 }
 

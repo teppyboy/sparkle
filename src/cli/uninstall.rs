@@ -34,22 +34,45 @@ pub async fn run(browser: &str) -> Result<()> {
 }
 
 fn uninstall_chrome(install_dir: &PathBuf) -> Result<()> {
-    let chrome_dir = install_dir.join("chrome");
-    if chrome_dir.exists() {
-        std::fs::remove_dir_all(&chrome_dir)?;
-        println!("✓ Chrome uninstalled");
-    } else {
-        println!("Chrome is not installed");
+    // Find all chromium-{revision} installations
+    let mut found = false;
+    if let Ok(entries) = std::fs::read_dir(install_dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_name) = entry.file_name().into_string() {
+                if file_name.starts_with("chromium-") {
+                    std::fs::remove_dir_all(entry.path())?;
+                    println!("✓ {} uninstalled", file_name);
+                    found = true;
+                }
+            }
+        }
+    }
+    
+    if !found {
+        println!("Chromium is not installed");
     }
     Ok(())
 }
 
 fn uninstall_chromedriver(install_dir: &PathBuf) -> Result<()> {
-    let driver_dir = install_dir.join("chromedriver");
-    if driver_dir.exists() {
-        std::fs::remove_dir_all(&driver_dir)?;
-        println!("✓ ChromeDriver uninstalled");
-    } else {
+    // Find chromium-{revision}/chromedriver subdirectories
+    let mut found = false;
+    if let Ok(entries) = std::fs::read_dir(install_dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_name) = entry.file_name().into_string() {
+                if file_name.starts_with("chromium-") {
+                    let driver_dir = entry.path().join("chromedriver");
+                    if driver_dir.exists() {
+                        std::fs::remove_dir_all(&driver_dir)?;
+                        println!("✓ ChromeDriver from {} uninstalled", file_name);
+                        found = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    if !found {
         println!("ChromeDriver is not installed");
     }
     Ok(())

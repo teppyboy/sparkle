@@ -68,6 +68,76 @@ impl ChromeDriverProcess {
         &self.url
     }
 
+    /// Find the installed Chrome binary path (latest version)
+    pub fn find_installed_chrome() -> Result<PathBuf> {
+        // First check CHROME_PATH environment variable
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            let path = PathBuf::from(path);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+
+        // Get the install directory
+        let install_dir = Self::get_install_dir()?;
+
+        // Find chromium-{revision} directories and get the latest version
+        let mut versions = Vec::new();
+        
+        if let Ok(entries) = std::fs::read_dir(&install_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_name) = entry.file_name().into_string() {
+                    if file_name.starts_with("chromium-") {
+                        if let Some(revision) = file_name.strip_prefix("chromium-") {
+                            versions.push((revision.to_string(), entry.path()));
+                        }
+                    }
+                }
+            }
+        }
+
+        if versions.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No Chromium installations found in: {:?}\nRun 'sparkle install chrome' to download Chrome",
+                install_dir
+            ));
+        }
+
+        // Sort versions to get the latest
+        versions.sort_by(|a, b| b.0.cmp(&a.0));
+        let latest_chrome_dir = &versions[0].1;
+
+        // Find the chrome executable
+        let executable_name = if cfg!(windows) {
+            "chrome.exe"
+        } else if cfg!(target_os = "macos") {
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        } else {
+            "chrome"
+        };
+
+        // Look for the executable in common locations
+        let possible_paths = vec![
+            latest_chrome_dir.join(executable_name),
+            latest_chrome_dir.join("chrome-win64").join(executable_name),
+            latest_chrome_dir.join("chrome-linux64").join(executable_name),
+            latest_chrome_dir.join("chrome-mac-x64").join(executable_name),
+            latest_chrome_dir.join("chrome-mac-arm64").join(executable_name),
+        ];
+
+        for path in possible_paths {
+            if path.exists() {
+                println!("Using Chrome: {:?}", path);
+                return Ok(path);
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Chrome executable not found in: {:?}",
+            latest_chrome_dir
+        ))
+    }
+
     /// Find the installed ChromeDriver executable path
     fn find_installed_chromedriver() -> Result<PathBuf> {
         // First check CHROMEDRIVER_PATH environment variable
@@ -80,33 +150,67 @@ impl ChromeDriverProcess {
 
         // Get the install directory (same as used by CLI install command)
         let install_dir = Self::get_install_dir()?;
-        let driver_dir = install_dir.join("chromedriver");
 
-        // Find the chromedriver executable in the driver directory
+        // Find the chromedriver executable in chromium-{revision}/chromedriver directories
         let executable_name = if cfg!(windows) {
             "chromedriver.exe"
         } else {
             "chromedriver"
         };
 
+        // Look for chromium-{revision} directories and find the latest version
+        let mut versions = Vec::new();
+        
+        if let Ok(entries) = std::fs::read_dir(&install_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_name) = entry.file_name().into_string() {
+                    if file_name.starts_with("chromium-") {
+                        // Check if chromedriver subdirectory exists
+                        let driver_subdir = entry.path().join("chromedriver");
+                        if driver_subdir.exists() {
+                            if let Some(revision) = file_name.strip_prefix("chromium-") {
+                                versions.push((revision.to_string(), driver_subdir));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if versions.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No ChromeDriver installations found in: {:?}\nRun 'sparkle install chrome' to download ChromeDriver",
+                install_dir
+            ));
+        }
+
+        // Sort versions to get the latest (semantic versioning comparison)
+        versions.sort_by(|a, b| {
+            // Simple version comparison - you could use a proper semver crate for production
+            b.0.cmp(&a.0)
+        });
+
+        let latest_driver_dir = &versions[0].1;
+        
         // Look for the executable in common locations within the driver directory
         let possible_paths = vec![
-            driver_dir.join(executable_name),
-            driver_dir.join("chromedriver-win64").join(executable_name),
-            driver_dir.join("chromedriver-linux64").join(executable_name),
-            driver_dir.join("chromedriver-mac-x64").join(executable_name),
-            driver_dir.join("chromedriver-mac-arm64").join(executable_name),
+            latest_driver_dir.join(executable_name),
+            latest_driver_dir.join("chromedriver-win64").join(executable_name),
+            latest_driver_dir.join("chromedriver-linux64").join(executable_name),
+            latest_driver_dir.join("chromedriver-mac-x64").join(executable_name),
+            latest_driver_dir.join("chromedriver-mac-arm64").join(executable_name),
         ];
 
         for path in possible_paths {
             if path.exists() {
+                println!("Using ChromeDriver: {:?}", path);
                 return Ok(path);
             }
         }
 
         Err(anyhow::anyhow!(
-            "ChromeDriver not found in installation directory: {:?}\nRun 'sparkle install chrome' to download ChromeDriver",
-            driver_dir
+            "ChromeDriver executable not found in: {:?}\nRun 'sparkle install chrome' to download ChromeDriver",
+            latest_driver_dir
         ))
     }
 

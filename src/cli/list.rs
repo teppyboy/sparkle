@@ -14,20 +14,31 @@ pub async fn run() -> Result<()> {
         return Ok(());
     }
 
-    let chrome_dir = install_dir.join("chrome");
-    if chrome_dir.exists() {
-        println!("✓ Chrome");
-        println!("  Location: {:?}", chrome_dir);
-    } else {
-        println!("✗ Chrome (not installed)");
+    // Find all chromium-{revision} installations
+    let mut chromium_versions = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&install_dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_name) = entry.file_name().into_string() {
+                if file_name.starts_with("chromium-") {
+                    if let Some(revision) = file_name.strip_prefix("chromium-") {
+                        // Check if chromedriver subdirectory exists
+                        let has_driver = entry.path().join("chromedriver").exists();
+                        chromium_versions.push((revision.to_string(), entry.path(), has_driver));
+                    }
+                }
+            }
+        }
     }
 
-    let driver_dir = install_dir.join("chromedriver");
-    if driver_dir.exists() {
-        println!("\n✓ ChromeDriver");
-        println!("  Location: {:?}", driver_dir);
+    if chromium_versions.is_empty() {
+        println!("✗ Chromium (not installed)");
     } else {
-        println!("\n✗ ChromeDriver (not installed)");
+        chromium_versions.sort_by(|a, b| b.0.cmp(&a.0));
+        println!("✓ Chromium ({} revision(s) installed)", chromium_versions.len());
+        for (revision, path, has_driver) in &chromium_versions {
+            let driver_status = if *has_driver { " [with ChromeDriver]" } else { "" };
+            println!("  - Revision {}{}: {:?}", revision, driver_status, path);
+        }
     }
 
     Ok(())
