@@ -130,6 +130,10 @@ pub enum Error {
     #[error("Browser type not supported: {0}")]
     UnsupportedBrowser(String),
 
+    /// Browser not found in installation directory
+    #[error("Browser not found: {0}")]
+    BrowserNotFound(String),
+
     /// Feature not implemented yet
     #[error("Feature not implemented: {0}")]
     NotImplemented(String),

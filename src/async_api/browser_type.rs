@@ -142,15 +142,137 @@ impl BrowserType {
 
     /// Get the path to the browser executable
     ///
-    /// Returns the path where Playwright expects to find the bundled browser.
-    pub fn executable_path(&self) -> String {
-        // This would return the actual path to the bundled browser
-        // For now, return a placeholder
+    /// Returns the path to the installed browser executable.
+    /// For Chromium, this searches the ms-playwright directory for installed versions.
+    /// For Firefox and WebKit, returns an error as they are not yet supported.
+    ///
+    /// # Returns
+    /// Path to the browser executable
+    ///
+    /// # Errors
+    /// - If no browser installation is found
+    /// - If the browser type is not supported (Firefox/WebKit)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// let playwright = Playwright::new().await?;
+    /// let path = playwright.chromium().executable_path()?;
+    /// println!("Chrome is installed at: {}", path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn executable_path(&self) -> Result<String> {
         match self.name {
-            BrowserName::Chromium => "/path/to/chromium".to_string(),
-            BrowserName::Firefox => "/path/to/firefox".to_string(),
-            BrowserName::WebKit => "/path/to/webkit".to_string(),
+            BrowserName::Chromium => {
+                let path = Self::find_chrome_executable()?;
+                Ok(path.to_string_lossy().to_string())
+            }
+            BrowserName::Firefox => {
+                Err(Error::not_implemented("Firefox support"))
+            }
+            BrowserName::WebKit => {
+                Err(Error::not_implemented("WebKit support"))
+            }
         }
+    }
+
+    /// Find the installed Chrome executable path
+    fn find_chrome_executable() -> Result<PathBuf> {
+        // First check CHROME_PATH environment variable
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            let path = PathBuf::from(path);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+
+        // Get the install directory
+        let install_dir = Self::get_install_dir()?;
+
+        // Find chromium-{revision} directories and get the latest version
+        let mut versions = Vec::new();
+        
+        if let Ok(entries) = std::fs::read_dir(&install_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_name) = entry.file_name().into_string() {
+                    if file_name.starts_with("chromium-") {
+                        if let Some(revision) = file_name.strip_prefix("chromium-") {
+                            versions.push((revision.to_string(), entry.path()));
+                        }
+                    }
+                }
+            }
+        }
+
+        if versions.is_empty() {
+            return Err(Error::BrowserNotFound(format!(
+                "No Chromium installations found in: {}\nRun 'sparkle install chrome' to download Chrome",
+                install_dir.display()
+            )));
+        }
+
+        // Sort versions to get the latest
+        versions.sort_by(|a, b| b.0.cmp(&a.0));
+        let latest_chrome_dir = &versions[0].1;
+
+        // Find the chrome executable
+        let executable_name = if cfg!(windows) {
+            "chrome.exe"
+        } else if cfg!(target_os = "macos") {
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        } else {
+            "chrome"
+        };
+
+        // Look for the executable in common locations
+        let possible_paths = vec![
+            latest_chrome_dir.join(executable_name),
+            latest_chrome_dir.join("chrome-win64").join(executable_name),
+            latest_chrome_dir.join("chrome-linux64").join(executable_name),
+            latest_chrome_dir.join("chrome-mac-x64").join(executable_name),
+            latest_chrome_dir.join("chrome-mac-arm64").join(executable_name),
+        ];
+
+        for path in possible_paths {
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+
+        Err(Error::BrowserNotFound(format!(
+            "Chrome executable not found in: {}",
+            latest_chrome_dir.display()
+        )))
+    }
+
+    /// Get the Playwright cache directory
+    fn get_install_dir() -> Result<PathBuf> {
+        // Use Playwright's cache directory structure for compatibility
+        // This allows reusing browsers downloaded by Playwright
+        
+        // Get the platform-specific cache directory
+        let cache_base = if cfg!(target_os = "windows") {
+            // Windows: %LOCALAPPDATA%
+            std::env::var("LOCALAPPDATA")
+                .or_else(|_| std::env::var("APPDATA"))
+                .map(PathBuf::from)
+                .map_err(|_| Error::ActionFailed("Failed to get LOCALAPPDATA or APPDATA".to_string()))?
+        } else if cfg!(target_os = "macos") {
+            // macOS: ~/Library/Caches
+            let home = std::env::var("HOME")
+                .map_err(|_| Error::ActionFailed("Failed to get HOME".to_string()))?;
+            PathBuf::from(home).join("Library").join("Caches")
+        } else {
+            // Linux/Unix: ~/.cache
+            let home = std::env::var("HOME")
+                .map_err(|_| Error::ActionFailed("Failed to get HOME".to_string()))?;
+            PathBuf::from(home).join(".cache")
+        };
+        
+        // Append ms-playwright to match Playwright's structure
+        Ok(cache_base.join("ms-playwright"))
     }
 }
 
@@ -169,5 +291,39 @@ mod tests {
     fn test_browser_type_creation() {
         let chromium = BrowserType::new(BrowserName::Chromium);
         assert_eq!(chromium.name(), BrowserName::Chromium);
+    }
+
+    #[test]
+    fn test_executable_path_not_implemented() {
+        // Firefox and WebKit should return NotImplemented error
+        let firefox = BrowserType::new(BrowserName::Firefox);
+        assert!(firefox.executable_path().is_err());
+        
+        let webkit = BrowserType::new(BrowserName::WebKit);
+        assert!(webkit.executable_path().is_err());
+    }
+
+    #[test]
+    fn test_executable_path_chromium() {
+        // Test that Chromium path returns either a valid path or BrowserNotFound error
+        let chromium = BrowserType::new(BrowserName::Chromium);
+        let result = chromium.executable_path();
+        
+        // Should either succeed (if Chrome is installed) or return BrowserNotFound
+        match result {
+            Ok(path) => {
+                // If successful, the path should not be empty
+                assert!(!path.is_empty());
+            }
+            Err(e) => {
+                // Should be either BrowserNotFound or ActionFailed (for env var issues)
+                let error_msg = e.to_string();
+                assert!(
+                    error_msg.contains("not found") || error_msg.contains("Failed to get"),
+                    "Unexpected error: {}",
+                    error_msg
+                );
+            }
+        }
     }
 }
