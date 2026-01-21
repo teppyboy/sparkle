@@ -46,6 +46,7 @@ pub mod prelude {
     pub use crate::async_api::{Browser, BrowserContext, BrowserType, ElementHandle, Locator, Page, Playwright};
     pub use crate::core::{
         BrowserContextOptions, BrowserContextOptionsBuilder, ClickOptions, ClickOptionsBuilder,
+        ConnectOptions, ConnectOptionsBuilder, ConnectOverCdpOptions, ConnectOverCdpOptionsBuilder,
         Error, LaunchOptions, LaunchOptionsBuilder, NavigationOptions, NavigationOptionsBuilder,
         Result, ScreenshotOptions, ScreenshotOptionsBuilder, TypeOptions, TypeOptionsBuilder,
     };

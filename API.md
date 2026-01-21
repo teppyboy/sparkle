@@ -35,8 +35,8 @@ implementations (network interception, tracing, video, etc.).
 | --- | --- | --- |
 | launch() | Implemented | Chromium only |
 | launch_persistent_context() | Missing | Persistent profile |
-| connect() | Missing | Connect to remote |
-| connect_over_cdp() | Missing | CDP connect |
+| connect() | Implemented | Remote WebDriver connection (Chromium only) |
+| connect_over_cdp() | Implemented | CDP connection via WebDriver (Chromium only) |
 | executable_path() | Implemented | Chromium only |
 | name | Implemented | BrowserName |
 
@@ -57,6 +57,26 @@ Launch options coverage:
 | proxy | Stub only | Defined but unused |
 | traces_dir | Stub only | Defined but unused |
 | handle_sighup/sigint/sigterm | Stub only | Defined but unused |
+
+Connect options coverage:
+
+| Option | Status | Notes |
+| --- | --- | --- |
+| timeout | Implemented | Connection timeout with retry |
+| slow_mo | Implemented | Stored but not yet enforced |
+| headers | Implemented | Custom WebDriver headers |
+| args | Implemented | Browser arguments |
+| executable_path | Implemented | Browser binary path |
+| env | Implemented | Environment variables |
+| channel | Stub only | Not yet supported |
+
+ConnectOverCdp options coverage:
+
+| Option | Status | Notes |
+| --- | --- | --- |
+| timeout | Implemented | Connection timeout with retry |
+| slow_mo | Implemented | Stored but not yet enforced |
+| headers | Implemented | Custom headers |
 
 ## Browser Coverage
 

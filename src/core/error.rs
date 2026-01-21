@@ -134,6 +134,10 @@ pub enum Error {
     #[error("Browser not found: {0}")]
     BrowserNotFound(String),
 
+    /// Connection to remote browser or WebDriver server failed
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
     /// Feature not implemented yet
     #[error("Feature not implemented: {0}")]
     NotImplemented(String),
@@ -197,6 +201,11 @@ impl Error {
     /// Create an invalid argument error
     pub fn invalid_argument(message: impl Into<String>) -> Self {
         Self::InvalidArgument(message.into())
+    }
+
+    /// Create a connection failed error
+    pub fn connection_failed(message: impl Into<String>) -> Self {
+        Self::ConnectionFailed(message.into())
     }
 
     /// Create a not implemented error

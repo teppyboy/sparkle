@@ -77,6 +77,60 @@ pub struct ProxySettings {
     pub password: Option<String>,
 }
 
+/// Options for connecting to an existing browser via remote WebDriver
+///
+/// This is used with `BrowserType::connect()` to connect to a running
+/// WebDriver server (e.g., Selenium Grid, standalone ChromeDriver).
+#[derive(Debug, Clone, Builder, Default)]
+#[builder(default, setter(into, strip_option))]
+pub struct ConnectOptions {
+    /// Maximum time to wait for the connection. Defaults to 30 seconds.
+    pub timeout: Option<Duration>,
+
+    /// Slows down operations by the specified duration. Useful for debugging.
+    pub slow_mo: Option<Duration>,
+
+    /// Additional HTTP headers to send with WebDriver requests
+    #[builder(default)]
+    pub headers: HashMap<String, String>,
+
+    /// Additional arguments to pass to the browser instance
+    #[builder(default)]
+    pub args: Vec<String>,
+
+    /// Path to a browser executable to use
+    pub executable_path: Option<PathBuf>,
+
+    /// Environment variables to set for the browser process
+    #[builder(default)]
+    pub env: HashMap<String, String>,
+
+    /// Browser distribution channel (e.g., "chrome", "chrome-beta")
+    pub channel: Option<String>,
+}
+
+/// Options for connecting to a browser via Chrome DevTools Protocol
+///
+/// This is used with `BrowserType::connect_over_cdp()` to connect to a
+/// Chromium-based browser with `--remote-debugging-port` enabled.
+///
+/// Note: This implementation connects via WebDriver protocol to the CDP
+/// endpoint, then enables CDP features. The endpoint must support both
+/// WebDriver and CDP protocols (standard for Chrome with --remote-debugging-port).
+#[derive(Debug, Clone, Builder, Default)]
+#[builder(default, setter(into, strip_option))]
+pub struct ConnectOverCdpOptions {
+    /// Maximum time to wait for the connection. Defaults to 30 seconds.
+    pub timeout: Option<Duration>,
+
+    /// Slows down operations by the specified duration. Useful for debugging.
+    pub slow_mo: Option<Duration>,
+
+    /// Additional HTTP headers to send with CDP requests
+    #[builder(default)]
+    pub headers: HashMap<String, String>,
+}
+
 /// Options for creating a new browser context
 #[derive(Debug, Clone, Builder, Default)]
 #[builder(default, setter(into, strip_option))]

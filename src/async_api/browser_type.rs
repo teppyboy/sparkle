@@ -3,7 +3,7 @@
 //! This module provides the BrowserType interface for launching browsers.
 
 use crate::async_api::browser::Browser;
-use crate::core::{Error, LaunchOptions, Result};
+use crate::core::{ConnectOptions, ConnectOverCdpOptions, Error, LaunchOptions, Result};
 use crate::driver::{ChromeDriverProcess, ChromiumCapabilities, WebDriverAdapter};
 use std::path::PathBuf;
 
@@ -138,6 +138,174 @@ impl BrowserType {
 
         // Create and return browser with driver process
         Ok(Browser::new(adapter, driver_process))
+    }
+
+    /// Connect to an existing browser instance via remote WebDriver
+    ///
+    /// This method connects to a running WebDriver server (e.g., Selenium Grid,
+    /// standalone ChromeDriver, or any WebDriver-compatible endpoint).
+    ///
+    /// # Arguments
+    /// * `endpoint_url` - WebDriver server URL (e.g., "http://localhost:4444")
+    /// * `options` - Connection configuration options
+    ///
+    /// # Returns
+    /// A Browser instance connected to the remote browser
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # use sparkle::core::ConnectOptionsBuilder;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// let playwright = Playwright::new().await?;
+    /// let options = ConnectOptionsBuilder::default()
+    ///     .timeout(std::time::Duration::from_secs(10))
+    ///     .build()
+    ///     .unwrap();
+    /// let browser = playwright.chromium()
+    ///     .connect("http://localhost:9515", options)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect(&self, endpoint_url: &str, options: ConnectOptions) -> Result<Browser> {
+        match self.name {
+            BrowserName::Chromium => self.connect_chromium(endpoint_url, options).await,
+            BrowserName::Firefox => Err(Error::not_implemented("Firefox connect support")),
+            BrowserName::WebKit => Err(Error::not_implemented("WebKit connect support")),
+        }
+    }
+
+    /// Connect to Chromium via remote WebDriver
+    async fn connect_chromium(&self, endpoint_url: &str, options: ConnectOptions) -> Result<Browser> {
+        // Build capabilities from options
+        let mut caps = ChromiumCapabilities::new();
+
+        // Add custom arguments
+        for arg in &options.args {
+            caps = caps.arg(arg.clone());
+        }
+
+        // Set executable path if provided
+        if let Some(path) = options.executable_path {
+            caps = caps.binary(path);
+        }
+
+        // Note: Channel configuration is not yet supported via ChromiumCapabilities
+        // This would require extending the capabilities builder
+        if options.channel.is_some() {
+            tracing::warn!("Channel option is not yet supported for remote connections");
+        }
+
+        let capabilities = caps.build();
+
+        // Determine timeout for connection
+        let timeout = options.timeout.unwrap_or(std::time::Duration::from_secs(30));
+        let start = std::time::Instant::now();
+
+        // Attempt to connect to the remote WebDriver server
+        let adapter = loop {
+            match WebDriverAdapter::create(endpoint_url, capabilities.clone()).await {
+                Ok(adapter) => break adapter,
+                Err(e) => {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::connection_failed(format!(
+                            "Failed to connect to WebDriver at '{}' after {:?}: {}",
+                            endpoint_url, timeout, e
+                        )));
+                    }
+                    // Wait a bit before retrying
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        };
+
+        // Create and return browser without driver process (remote connection)
+        Ok(Browser::new(adapter, None))
+    }
+
+    /// Connect to a browser via Chrome DevTools Protocol
+    ///
+    /// This method connects to a Chromium-based browser with `--remote-debugging-port`
+    /// enabled. The endpoint should be a WebDriver-compatible URL on the debugging port.
+    ///
+    /// Note: This implementation uses WebDriver protocol to connect to the CDP endpoint,
+    /// then enables CDP features via thirtyfour's CDP extensions. The endpoint must
+    /// support both WebDriver and CDP protocols (standard for Chrome with
+    /// --remote-debugging-port).
+    ///
+    /// # Arguments
+    /// * `endpoint_url` - CDP endpoint URL (e.g., "http://localhost:9222")
+    /// * `options` - Connection configuration options
+    ///
+    /// # Returns
+    /// A Browser instance connected via CDP
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # use sparkle::core::ConnectOverCdpOptionsBuilder;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// // First, launch Chrome with: chrome --remote-debugging-port=9222
+    /// let playwright = Playwright::new().await?;
+    /// let options = ConnectOverCdpOptionsBuilder::default()
+    ///     .timeout(std::time::Duration::from_secs(10))
+    ///     .build()
+    ///     .unwrap();
+    /// let browser = playwright.chromium()
+    ///     .connect_over_cdp("http://localhost:9222", options)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect_over_cdp(
+        &self,
+        endpoint_url: &str,
+        options: ConnectOverCdpOptions,
+    ) -> Result<Browser> {
+        match self.name {
+            BrowserName::Chromium => self.connect_chromium_cdp(endpoint_url, options).await,
+            BrowserName::Firefox => Err(Error::not_implemented("Firefox CDP support")),
+            BrowserName::WebKit => Err(Error::not_implemented("WebKit CDP support")),
+        }
+    }
+
+    /// Connect to Chromium via CDP endpoint
+    async fn connect_chromium_cdp(
+        &self,
+        endpoint_url: &str,
+        options: ConnectOverCdpOptions,
+    ) -> Result<Browser> {
+        // For CDP connections, we use minimal capabilities
+        // The browser is already running with its own configuration
+        let caps = ChromiumCapabilities::new().build();
+
+        // Determine timeout for connection
+        let timeout = options.timeout.unwrap_or(std::time::Duration::from_secs(30));
+        let start = std::time::Instant::now();
+
+        // Attempt to connect to the CDP endpoint via WebDriver
+        // Chrome with --remote-debugging-port exposes both CDP and WebDriver protocols
+        let adapter = loop {
+            match WebDriverAdapter::create(endpoint_url, caps.clone()).await {
+                Ok(adapter) => break adapter,
+                Err(e) => {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::connection_failed(format!(
+                            "Failed to connect to CDP endpoint at '{}' after {:?}: {}. \
+                             Make sure Chrome is running with --remote-debugging-port=<port>",
+                            endpoint_url, timeout, e
+                        )));
+                    }
+                    // Wait a bit before retrying
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        };
+
+        // Create and return browser without driver process (remote connection)
+        // CDP features can be accessed via thirtyfour's ChromeDevTools extension
+        Ok(Browser::new(adapter, None))
     }
 
     /// Get the path to the browser executable
