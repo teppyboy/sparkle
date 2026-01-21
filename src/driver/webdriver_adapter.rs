@@ -6,6 +6,7 @@
 use crate::core::{Error, Result};
 use std::sync::Arc;
 use std::time::Duration;
+use thirtyfour::extensions::cdp::ChromeDevTools;
 use thirtyfour::prelude::*;
 use tokio::sync::RwLock;
 
@@ -16,22 +17,27 @@ use tokio::sync::RwLock;
 pub struct WebDriverAdapter {
     driver: Arc<RwLock<Option<WebDriver>>>,
     slow_mo: Option<Duration>,
+    cdp: Arc<RwLock<Option<ChromeDevTools>>>,
 }
 
 impl WebDriverAdapter {
     /// Create a new WebDriver adapter from an existing driver
     pub fn new(driver: WebDriver) -> Self {
+        let cdp = ChromeDevTools::new(driver.handle.clone());
         Self {
             driver: Arc::new(RwLock::new(Some(driver))),
             slow_mo: None,
+            cdp: Arc::new(RwLock::new(Some(cdp))),
         }
     }
 
     /// Create a new WebDriver adapter with slow_mo
     pub fn new_with_slow_mo(driver: WebDriver, slow_mo: Option<Duration>) -> Self {
+        let cdp = ChromeDevTools::new(driver.handle.clone());
         Self {
             driver: Arc::new(RwLock::new(Some(driver))),
             slow_mo,
+            cdp: Arc::new(RwLock::new(Some(cdp))),
         }
     }
 
@@ -82,6 +88,17 @@ impl WebDriverAdapter {
     /// Returns an error if the driver has been closed
     pub async fn driver_mut(&self) -> Result<tokio::sync::RwLockWriteGuard<'_, Option<WebDriver>>> {
         let guard = self.driver.write().await;
+        if guard.is_none() {
+            return Err(Error::BrowserClosed);
+        }
+        Ok(guard)
+    }
+
+    /// Get a reference to the Chrome DevTools Protocol interface
+    ///
+    /// Returns an error if the driver has been closed
+    pub async fn cdp(&self) -> Result<tokio::sync::RwLockReadGuard<'_, Option<ChromeDevTools>>> {
+        let guard = self.cdp.read().await;
         if guard.is_none() {
             return Err(Error::BrowserClosed);
         }
@@ -179,6 +196,13 @@ impl WebDriverAdapter {
     /// Close the browser and clean up
     pub async fn close(&self) -> Result<()> {
         tracing::debug!("Closing WebDriver session");
+        
+        // Clear CDP first
+        let mut cdp_guard = self.cdp.write().await;
+        cdp_guard.take();
+        drop(cdp_guard);
+        
+        // Then close the driver
         let mut guard = self.driver.write().await;
         if let Some(driver) = guard.take() {
             driver.quit().await?;
@@ -192,18 +216,78 @@ impl WebDriverAdapter {
         self.driver.read().await.is_none()
     }
 
+    /// Execute a Chrome DevTools Protocol command
+    ///
+    /// # Arguments
+    /// * `command` - The CDP command to execute (e.g., "Browser.getVersion")
+    ///
+    /// # Returns
+    /// The CDP response as a JSON value
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::driver::WebDriverAdapter;
+    /// # async fn example(adapter: &WebDriverAdapter) -> sparkle::core::Result<()> {
+    /// let version_info = adapter.execute_cdp("Browser.getVersion").await?;
+    /// println!("Browser version: {:?}", version_info);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn execute_cdp(&self, command: &str) -> Result<serde_json::Value> {
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        let result = dev_tools.execute_cdp(command).await
+            .map_err(|e| Error::ActionFailed(format!("CDP command failed: {}", e)))?;
+        
+        Ok(result)
+    }
+
+    /// Execute a Chrome DevTools Protocol command with parameters
+    ///
+    /// # Arguments
+    /// * `command` - The CDP command to execute
+    /// * `params` - Parameters for the CDP command as a JSON value
+    ///
+    /// # Returns
+    /// The CDP response as a JSON value
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::driver::WebDriverAdapter;
+    /// # use serde_json::json;
+    /// # async fn example(adapter: &WebDriverAdapter) -> sparkle::core::Result<()> {
+    /// let params = json!({"expression": "1 + 1"});
+    /// let result = adapter.execute_cdp_with_params("Runtime.evaluate", params).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn execute_cdp_with_params(
+        &self,
+        command: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        let result = dev_tools.execute_cdp_with_params(command, params).await
+            .map_err(|e| Error::ActionFailed(format!("CDP command failed: {}", e)))?;
+        
+        Ok(result)
+    }
+
     /// Get the browser version
     ///
     /// Returns the browser version string (e.g., "145.0.7632.6")
     /// Uses Chrome DevTools Protocol for accurate version information.
     pub async fn browser_version(&self) -> Result<String> {
         let guard = self.driver().await?;
-        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let _driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         
         // Try Chrome DevTools Protocol first (works for Chrome/Chromium/Edge)
         // This gives us the most accurate version information
-        use thirtyfour::extensions::cdp::ChromeDevTools;
-        let dev_tools = ChromeDevTools::new(driver.handle.clone());
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
         
         if let Ok(version_info) = dev_tools.execute_cdp("Browser.getVersion").await {
             // Extract browser version from CDP response
@@ -220,6 +304,7 @@ impl WebDriverAdapter {
         
         // Fallback: Use JavaScript to get browser version from user agent
         // This works across all browsers (Chrome, Firefox, Safari, Edge, etc.)
+        drop(cdp_guard); // Release CDP lock before calling execute_script
         let result = self.execute_script("return navigator.userAgent").await?;
         if let Some(ua) = result.as_str() {
             // Try to extract version from user agent

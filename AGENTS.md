@@ -292,6 +292,53 @@ impl ChromiumCapabilities {
 - **Use `Option<T>`** for optional fields in option structs
 - **Use `Arc<T>`** for shared ownership in async contexts
 
+### Chrome DevTools Protocol (CDP)
+
+**CDP instance is stored and reused:**
+```rust
+// In WebDriverAdapter:
+pub struct WebDriverAdapter {
+    driver: Arc<RwLock<Option<WebDriver>>>,
+    slow_mo: Option<Duration>,
+    cdp: Arc<RwLock<Option<ChromeDevTools>>>,  // Stored CDP instance
+}
+
+// CDP is created once when WebDriver is initialized
+pub fn new(driver: WebDriver) -> Self {
+    let cdp = ChromeDevTools::new(driver.handle.clone());
+    Self {
+        driver: Arc::new(RwLock::new(Some(driver))),
+        slow_mo: None,
+        cdp: Arc::new(RwLock::new(Some(cdp))),
+    }
+}
+
+// Access CDP without recreating it
+pub async fn execute_cdp(&self, command: &str) -> Result<serde_json::Value> {
+    let cdp_guard = self.cdp().await?;
+    let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+    dev_tools.execute_cdp(command).await
+}
+```
+
+**Using CDP from Browser API:**
+```rust
+let browser = playwright.chromium().launch(options).await?;
+
+// Get browser version using CDP (internally uses stored CDP instance)
+let version_info = browser.execute_cdp("Browser.getVersion").await?;
+
+// Execute CDP with parameters
+let params = json!({"expression": "1 + 1"});
+let result = browser.execute_cdp_with_params("Runtime.evaluate", params).await?;
+```
+
+**Benefits:**
+- No overhead of creating CDP instance for each call
+- Consistent handle across the browser's lifetime
+- Automatic cleanup when browser closes
+- Thread-safe access via RwLock
+
 ## Testing Guidelines
 
 **Write inline unit tests:**

@@ -3,6 +3,7 @@
 //! This module implements the Browser class which represents a browser instance.
 
 use crate::async_api::Locator;
+use crate::async_api::CDPSession;
 use crate::core::{BrowserContextOptions, ClickOptions, Error, Result, TypeOptions};
 use crate::driver::{ChromeDriverProcess, WebDriverAdapter};
 use std::sync::Arc;
@@ -150,6 +151,85 @@ impl Browser {
     /// ```
     pub async fn version(&self) -> Result<String> {
         self.adapter.browser_version().await
+    }
+
+    /// Create a new Chrome DevTools Protocol session
+    ///
+    /// Returns a CDPSession object that can be used to send CDP commands.
+    /// This matches Playwright API.
+    ///
+    /// Note: CDP sessions are only supported on Chromium-based browsers.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Browser;
+    /// # use serde_json::json;
+    /// # async fn example(browser: &Browser) -> sparkle::core::Result<()> {
+    /// let cdp_session = browser.new_browser_cdp_session().await?;
+    /// 
+    /// // Get browser version
+    /// let version = cdp_session.send("Browser.getVersion", None).await?;
+    /// 
+    /// // Evaluate JavaScript
+    /// let params = json!({"expression": "1 + 1"});
+    /// let result = cdp_session.send("Runtime.evaluate", Some(params)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn new_browser_cdp_session(&self) -> Result<CDPSession> {
+        if self.adapter.is_closed().await {
+            return Err(Error::BrowserClosed);
+        }
+        Ok(CDPSession::new(Arc::clone(&self.adapter)))
+    }
+
+    /// Execute a Chrome DevTools Protocol command (Sparkle Extension)
+    ///
+    /// **IMPORTANT**: This is a Sparkle-specific convenience method that does NOT exist
+    /// in Playwright. For Playwright compatibility, use browser.new_browser_cdp_session() instead.
+    ///
+    /// # Arguments
+    /// * `command` - The CDP command to execute
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Browser;
+    /// # async fn example(browser: &Browser) -> sparkle::core::Result<()> {
+    /// // Sparkle convenience (not in Playwright)
+    /// let info = browser.execute_cdp("Browser.getVersion").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn execute_cdp(&self, command: &str) -> Result<serde_json::Value> {
+        self.adapter.execute_cdp(command).await
+    }
+
+    /// Execute a Chrome DevTools Protocol command with parameters (Sparkle Extension)
+    ///
+    /// **IMPORTANT**: This is a Sparkle-specific convenience method that does NOT exist
+    /// in Playwright. For Playwright compatibility, use browser.new_browser_cdp_session() instead.
+    ///
+    /// # Arguments
+    /// * `command` - The CDP command to execute
+    /// * `params` - Parameters for the CDP command
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Browser;
+    /// # use serde_json::json;
+    /// # async fn example(browser: &Browser) -> sparkle::core::Result<()> {
+    /// // Sparkle convenience (not in Playwright)
+    /// let params = json!({"expression": "1 + 1"});
+    /// let result = browser.execute_cdp_with_params("Runtime.evaluate", params).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn execute_cdp_with_params(
+        &self,
+        command: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.adapter.execute_cdp_with_params(command, params).await
     }
 }
 
