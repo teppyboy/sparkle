@@ -8,12 +8,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Sparkle brings Playwright's intuitive API to Rust with full async support, type safety, and automatic browser management.
+Sparkle brings Playwright's API to Rust with async support.
 
 ## Features
 
 - **Async/Await** - Built on Tokio for efficient async operations
-- **Type-Safe** - Builder patterns with compile-time guarantees
 - **Auto-Waiting Locators** - Modern element selection that handles timing
 - **CLI Tool** - Automatic browser/driver download and management
 - **Playwright Compatible** - Shares browser cache with Playwright installations
@@ -21,7 +20,7 @@ Sparkle brings Playwright's intuitive API to Rust with full async support, type 
 - **Fast & Ergonomic** - Idiomatic Rust with minimal boilerplate
 
 
-## Quick Start
+## Installation
 
 ### 1. Install Sparkle CLI
 
@@ -64,31 +63,10 @@ async fn main() -> Result<()> {
 cargo run --example your_script
 ```
 
-ChromeDriver launches automatically - no manual setup required!
 
+## CLI
 
-## CLI Commands
-
-```bash
-# Install Chrome + ChromeDriver (default)
-sparkle install chrome
-
-# Skip ChromeDriver installation
-sparkle install chrome --skip-driver
-
-# Force reinstall
-sparkle install chrome --force
-
-# List installed browsers
-sparkle list
-
-# Uninstall
-sparkle uninstall chrome
-sparkle uninstall all
-```
-
-**Installation Location:**  
-Browsers install to Playwright's cache (`%LOCALAPPDATA%\ms-playwright` on Windows, `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS). This allows sharing browsers with Playwright installations.
+See [CLI.md](./CLI.md) for more information.
 
 ## Advanced Configuration
 
@@ -107,9 +85,7 @@ export CHROME_PATH=/path/to/chrome
 
 ## Examples
 
-See [`examples/`](examples/) for more:
-- `basic_navigation.rs` - Navigation, screenshots, page interactions
-- `locator_demo.rs` - Auto-waiting locators and element selection
+See [`examples/`](examples/) for how to use the library, to run an example execute:
 
 ```bash
 cargo run --example basic_navigation
@@ -124,11 +100,9 @@ Sparkle is built on three main layers:
 - **`core/`** - Types, errors, options builders  
 - **`driver/`** - WebDriver adapter (wraps thirtyfour)
 
-Key components: `Playwright`, `Browser`, `BrowserContext`, `Page`, `Locator`, `ElementHandle`
-
 ## Project Status
 
-**Current:** v0.1 (Early Stage)
+This project is in very early stage, do NOT expect anything to work yet.
 
 **Implemented:**
 - Core async API with Chromium support
@@ -137,23 +111,9 @@ Key components: `Playwright`, `Browser`, `BrowserContext`, `Page`, `Locator`, `E
 - CLI tool with automatic browser/driver management
 - Playwright cache compatibility
 
-**In Progress:**
-- Network interception
-- Frame handling  
-- Dialogs & file uploads
-
-**Planned:**
-- Firefox & WebKit support
-- Video recording
-- Complete API parity with Playwright
-
-## Contributing
-
-Contributions welcome! This is an early-stage project with lots of opportunity.
-
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE)
+[Apache License 2.0](./LICENSE)
 
 ## Acknowledgments
 
