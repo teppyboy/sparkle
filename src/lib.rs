@@ -1,4 +1,4 @@
-//! Sparkle - A Playwright implementation in Rust
+//! Sparkle - A reimplementation of Playwright written in Rust, powered by `thirtyfour`.
 //!
 //! Sparkle provides a high-level API for browser automation, closely matching
 //! the Playwright Python API while being idiomatic to Rust.
@@ -48,7 +48,8 @@ pub mod prelude {
         BrowserContextOptions, BrowserContextOptionsBuilder, ClickOptions, ClickOptionsBuilder,
         ConnectOptions, ConnectOptionsBuilder, ConnectOverCdpOptions, ConnectOverCdpOptionsBuilder,
         Error, LaunchOptions, LaunchOptionsBuilder, NavigationOptions, NavigationOptionsBuilder,
-        Result, ScreenshotOptions, ScreenshotOptionsBuilder, TypeOptions, TypeOptionsBuilder,
+        ProxySettings, Result, ScreenshotOptions, ScreenshotOptionsBuilder, TypeOptions, 
+        TypeOptionsBuilder,
     };
 }
 

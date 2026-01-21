@@ -5,6 +5,7 @@
 
 use crate::core::{Error, Result};
 use std::sync::Arc;
+use std::time::Duration;
 use thirtyfour::prelude::*;
 use tokio::sync::RwLock;
 
@@ -14,6 +15,7 @@ use tokio::sync::RwLock;
 /// handling conversions and adapting behavior where needed.
 pub struct WebDriverAdapter {
     driver: Arc<RwLock<Option<WebDriver>>>,
+    slow_mo: Option<Duration>,
 }
 
 impl WebDriverAdapter {
@@ -21,6 +23,22 @@ impl WebDriverAdapter {
     pub fn new(driver: WebDriver) -> Self {
         Self {
             driver: Arc::new(RwLock::new(Some(driver))),
+            slow_mo: None,
+        }
+    }
+
+    /// Create a new WebDriver adapter with slow_mo
+    pub fn new_with_slow_mo(driver: WebDriver, slow_mo: Option<Duration>) -> Self {
+        Self {
+            driver: Arc::new(RwLock::new(Some(driver))),
+            slow_mo,
+        }
+    }
+
+    /// Apply slow_mo delay before an operation
+    async fn apply_slow_mo(&self) {
+        if let Some(duration) = self.slow_mo {
+            tokio::time::sleep(duration).await;
         }
     }
 
@@ -29,13 +47,18 @@ impl WebDriverAdapter {
     /// # Arguments
     /// * `url` - WebDriver server URL (e.g., "http://localhost:9515" for ChromeDriver)
     /// * `capabilities` - Browser capabilities as a HashMap
-    pub async fn create(url: &str, capabilities: std::collections::HashMap<String, serde_json::Value>) -> Result<Self> {
+    /// * `slow_mo` - Optional delay to slow down operations
+    pub async fn create(
+        url: &str, 
+        capabilities: std::collections::HashMap<String, serde_json::Value>,
+        slow_mo: Option<Duration>,
+    ) -> Result<Self> {
         // Convert HashMap to serde_json::Map
         let caps_map: serde_json::Map<String, serde_json::Value> = 
             capabilities.into_iter().collect();
         let caps: Capabilities = caps_map.into();
         let driver = WebDriver::new(url, caps).await?;
-        Ok(Self::new(driver))
+        Ok(Self::new_with_slow_mo(driver, slow_mo))
     }
 
     /// Get a reference to the underlying WebDriver
@@ -75,6 +98,7 @@ impl WebDriverAdapter {
 
     /// Navigate to a URL
     pub async fn goto(&self, url: &str) -> Result<()> {
+        self.apply_slow_mo().await;
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         driver.goto(url).await?;
@@ -99,6 +123,7 @@ impl WebDriverAdapter {
 
     /// Find an element by CSS selector
     pub async fn find_element(&self, selector: &str) -> Result<WebElement> {
+        self.apply_slow_mo().await;
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         let element = driver
@@ -118,6 +143,7 @@ impl WebDriverAdapter {
 
     /// Execute JavaScript in the browser context
     pub async fn execute_script(&self, script: &str) -> Result<serde_json::Value> {
+        self.apply_slow_mo().await;
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         let result = driver.execute(script, Vec::new()).await?;

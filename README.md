@@ -19,6 +19,9 @@ Sparkle brings Playwright's API to Rust with async support.
 - **Zero Config** - ChromeDriver auto-launches and manages itself
 - **Fast & Ergonomic** - Idiomatic Rust with minimal boilerplate
 
+## Documentation
+
+Documentation is available at https://sparkle.tretrauit.me, and maybe https://docs.rs if I publish this crate later.
 
 ## Installation
 

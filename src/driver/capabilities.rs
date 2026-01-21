@@ -12,6 +12,9 @@ pub struct ChromiumCapabilities {
     headless: bool,
     args: Vec<String>,
     binary: Option<PathBuf>,
+    env: HashMap<String, String>,
+    prefs: HashMap<String, serde_json::Value>,
+    downloads_path: Option<PathBuf>,
 }
 
 impl ChromiumCapabilities {
@@ -21,6 +24,9 @@ impl ChromiumCapabilities {
             headless: true,
             args: Vec::new(),
             binary: None,
+            env: HashMap::new(),
+            prefs: HashMap::new(),
+            downloads_path: None,
         }
     }
 
@@ -48,6 +54,51 @@ impl ChromiumCapabilities {
         self
     }
 
+    /// Add an environment variable
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add multiple environment variables
+    pub fn envs(mut self, vars: HashMap<String, String>) -> Self {
+        self.env.extend(vars);
+        self
+    }
+
+    /// Get the environment variables
+    pub fn get_env(&self) -> &HashMap<String, String> {
+        &self.env
+    }
+
+    /// Set a Chrome preference
+    pub fn pref(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.prefs.insert(key.into(), value);
+        self
+    }
+
+    /// Add multiple Chrome preferences
+    pub fn prefs(mut self, prefs: HashMap<String, serde_json::Value>) -> Self {
+        self.prefs.extend(prefs);
+        self
+    }
+
+    /// Set the downloads directory path
+    pub fn downloads_path(mut self, path: PathBuf) -> Self {
+        self.downloads_path = Some(path);
+        self
+    }
+
+    /// Add proxy configuration via command-line arguments
+    pub fn proxy(mut self, server: &str, bypass: Option<&str>) -> Self {
+        self.args.push(format!("--proxy-server={}", server));
+        if let Some(bypass_list) = bypass {
+            self.args
+                .push(format!("--proxy-bypass-list={}", bypass_list));
+        }
+        self
+    }
+
     /// Build the capabilities as a HashMap
     pub fn build(self) -> HashMap<String, serde_json::Value> {
         let mut args = self.args;
@@ -65,6 +116,32 @@ impl ChromiumCapabilities {
         if let Some(binary) = self.binary {
             if let Some(obj) = chrome_options.as_object_mut() {
                 obj.insert("binary".to_string(), json!(binary.to_string_lossy()));
+            }
+        }
+
+        // Add environment variables if specified
+        if !self.env.is_empty() {
+            if let Some(obj) = chrome_options.as_object_mut() {
+                // Chrome uses "env" in experimental options for browser process env vars
+                let mut experimental = serde_json::Map::new();
+                experimental.insert("env".to_string(), json!(self.env));
+                obj.insert("experimentalOptions".to_string(), json!(experimental));
+            }
+        }
+
+        // Add preferences (including downloads_path) if specified
+        let mut all_prefs = self.prefs;
+        if let Some(downloads_dir) = self.downloads_path {
+            all_prefs.insert(
+                "download.default_directory".to_string(),
+                json!(downloads_dir.to_string_lossy()),
+            );
+            all_prefs.insert("download.prompt_for_download".to_string(), json!(false));
+        }
+
+        if !all_prefs.is_empty() {
+            if let Some(obj) = chrome_options.as_object_mut() {
+                obj.insert("prefs".to_string(), json!(all_prefs));
             }
         }
 

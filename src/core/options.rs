@@ -59,6 +59,13 @@ pub struct LaunchOptions {
 
     /// Network proxy settings.
     pub proxy: Option<ProxySettings>,
+
+    /// If true, ignores all default arguments.
+    pub ignore_all_default_args: Option<bool>,
+
+    /// List of default arguments to filter out.
+    #[builder(default)]
+    pub ignore_default_args: Vec<String>,
 }
 
 /// Network proxy configuration

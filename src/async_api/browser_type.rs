@@ -89,11 +89,18 @@ impl BrowserType {
         // Build capabilities
         let mut caps = ChromiumCapabilities::new();
 
-        // Set headless mode
-        if let Some(headless) = options.headless {
-            caps = caps.headless(headless);
+        // Handle devtools option - if devtools is true, force headless to false
+        let headless = if options.devtools == Some(true) {
+            false
         } else {
-            caps = caps.headless(true); // Default to headless
+            options.headless.unwrap_or(true) // Default to headless
+        };
+        
+        caps = caps.headless(headless);
+
+        // Add devtools argument if requested
+        if options.devtools == Some(true) {
+            caps = caps.arg("--auto-open-devtools-for-tabs");
         }
 
         // Add custom arguments
@@ -101,19 +108,65 @@ impl BrowserType {
             caps = caps.arg(arg.clone());
         }
 
-        // Add common arguments for stability
-        caps = caps
-            .arg("--no-sandbox")
-            .arg("--disable-dev-shm-usage")
-            .arg("--disable-blink-features=AutomationControlled");
+        // Build list of default arguments for stability
+        let mut default_args = Vec::new();
+        
+        // Only add --no-sandbox if chromium_sandbox is not explicitly enabled
+        if !options.chromium_sandbox.unwrap_or(false) {
+            default_args.push("--no-sandbox".to_string());
+        }
+        default_args.push("--disable-dev-shm-usage".to_string());
+        default_args.push("--disable-blink-features=AutomationControlled".to_string());
 
-        // Find and set Chrome binary path from installed location
-        // This will use the latest versioned Chrome installation
-        if let Ok(chrome_path) = ChromeDriverProcess::find_installed_chrome() {
-            caps = caps.binary(chrome_path);
+        // Filter default args based on ignore options
+        if options.ignore_all_default_args != Some(true) {
+            // Only add default args that are not in the ignore list
+            for arg in default_args {
+                if !options.ignore_default_args.contains(&arg) {
+                    caps = caps.arg(arg);
+                }
+            }
+        }
+        // If ignore_all_default_args is true, skip adding all default args
+
+        // Set Chrome binary path
+        // Priority: executable_path > channel > find_installed_chrome
+        if let Some(executable_path) = options.executable_path {
+            // Use provided executable path
+            caps = caps.binary(executable_path);
+        } else if let Some(channel) = &options.channel {
+            // Try to find browser by channel
+            let channel_path = Self::find_chrome_by_channel(channel)?;
+            caps = caps.binary(channel_path);
+        } else {
+            // Find and set Chrome binary path from installed location
+            // This will use the latest versioned Chrome installation
+            if let Ok(chrome_path) = ChromeDriverProcess::find_installed_chrome() {
+                caps = caps.binary(chrome_path);
+            }
+        }
+
+        // Add environment variables
+        if !options.env.is_empty() {
+            caps = caps.envs(options.env.clone());
+        }
+
+        // Set downloads path if specified
+        if let Some(downloads_path) = options.downloads_path {
+            caps = caps.downloads_path(downloads_path);
+        }
+
+        // Set proxy if specified
+        if let Some(proxy) = options.proxy {
+            caps = caps.proxy(&proxy.server, proxy.bypass.as_deref());
         }
 
         let capabilities = caps.build();
+
+        // Calculate timeout (default 30 seconds)
+        let total_timeout = options.timeout.unwrap_or(std::time::Duration::from_secs(30));
+        // Split timeout: 60% for ChromeDriver launch, 40% for browser connection
+        let driver_timeout = total_timeout.mul_f32(0.6);
 
         // Determine ChromeDriver URL or launch ChromeDriver automatically
         let (chromedriver_url, driver_process) = if let Ok(url) = std::env::var("CHROMEDRIVER_URL") {
@@ -126,15 +179,15 @@ impl BrowserType {
                 .map(PathBuf::from);
             
             // Launch ChromeDriver automatically from installed location or custom path
-            let process = ChromeDriverProcess::launch(driver_path, 9515)
+            let process = ChromeDriverProcess::launch(driver_path, 9515, &options.env, driver_timeout)
                 .await
                 .map_err(|e| Error::internal(format!("Failed to launch ChromeDriver: {}", e)))?;
             let url = process.url().to_string();
             (url, Some(process))
         };
 
-        // Create WebDriver adapter
-        let adapter = WebDriverAdapter::create(&chromedriver_url, capabilities).await?;
+        // Create WebDriver adapter with slow_mo
+        let adapter = WebDriverAdapter::create(&chromedriver_url, capabilities, options.slow_mo).await?;
 
         // Create and return browser with driver process
         Ok(Browser::new(adapter, driver_process))
@@ -205,7 +258,7 @@ impl BrowserType {
 
         // Attempt to connect to the remote WebDriver server
         let adapter = loop {
-            match WebDriverAdapter::create(endpoint_url, capabilities.clone()).await {
+            match WebDriverAdapter::create(endpoint_url, capabilities.clone(), options.slow_mo).await {
                 Ok(adapter) => break adapter,
                 Err(e) => {
                     if start.elapsed() >= timeout {
@@ -287,7 +340,7 @@ impl BrowserType {
         // Attempt to connect to the CDP endpoint via WebDriver
         // Chrome with --remote-debugging-port exposes both CDP and WebDriver protocols
         let adapter = loop {
-            match WebDriverAdapter::create(endpoint_url, caps.clone()).await {
+            match WebDriverAdapter::create(endpoint_url, caps.clone(), options.slow_mo).await {
                 Ok(adapter) => break adapter,
                 Err(e) => {
                     if start.elapsed() >= timeout {
@@ -412,6 +465,125 @@ impl BrowserType {
         Err(Error::BrowserNotFound(format!(
             "Chrome executable not found in: {}",
             latest_chrome_dir.display()
+        )))
+    }
+
+    /// Find Chrome binary by channel name
+    ///
+    /// Searches for Chrome variants in standard installation locations and PATH.
+    /// Supported channels: chrome, chrome-beta, chrome-dev, chrome-canary, msedge, msedge-beta, msedge-dev
+    fn find_chrome_by_channel(channel: &str) -> Result<PathBuf> {
+        let executable_names: Vec<String> = if cfg!(windows) {
+            match channel {
+                "chrome" => vec!["chrome.exe".to_string()],
+                "chrome-beta" => vec!["chrome.exe".to_string()],
+                "chrome-dev" => vec!["chrome.exe".to_string()],
+                "chrome-canary" => vec!["chrome.exe".to_string()],
+                "msedge" => vec!["msedge.exe".to_string()],
+                "msedge-beta" => vec!["msedge.exe".to_string()],
+                "msedge-dev" => vec!["msedge.exe".to_string()],
+                _ => return Err(Error::BrowserNotFound(format!("Unknown channel: {}", channel))),
+            }
+        } else if cfg!(target_os = "macos") {
+            match channel {
+                "chrome" => vec![
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".to_string(),
+                ],
+                "chrome-beta" => vec![
+                    "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta".to_string(),
+                ],
+                "chrome-dev" => vec![
+                    "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev".to_string(),
+                ],
+                "chrome-canary" => vec![
+                    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary".to_string(),
+                ],
+                "msedge" => vec![
+                    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge".to_string(),
+                ],
+                "msedge-beta" => vec![
+                    "/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta".to_string(),
+                ],
+                "msedge-dev" => vec![
+                    "/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev".to_string(),
+                ],
+                _ => return Err(Error::BrowserNotFound(format!("Unknown channel: {}", channel))),
+            }
+        } else {
+            // Linux
+            match channel {
+                "chrome" => vec!["google-chrome".to_string(), "chrome".to_string()],
+                "chrome-beta" => vec!["google-chrome-beta".to_string()],
+                "chrome-dev" => vec!["google-chrome-unstable".to_string()],
+                "msedge" => vec!["microsoft-edge".to_string()],
+                "msedge-beta" => vec!["microsoft-edge-beta".to_string()],
+                "msedge-dev" => vec!["microsoft-edge-dev".to_string()],
+                _ => return Err(Error::BrowserNotFound(format!("Unknown channel: {}", channel))),
+            }
+        };
+
+        // On Windows, search standard installation directories
+        if cfg!(windows) {
+            let base_paths = vec![
+                std::env::var("ProgramFiles").ok().map(PathBuf::from),
+                std::env::var("ProgramFiles(x86)").ok().map(PathBuf::from),
+                std::env::var("LOCALAPPDATA").ok().map(PathBuf::from),
+            ];
+
+            let app_dirs: Vec<&str> = match channel {
+                "chrome" => vec!["Google\\Chrome\\Application"],
+                "chrome-beta" => vec!["Google\\Chrome Beta\\Application"],
+                "chrome-dev" => vec!["Google\\Chrome Dev\\Application"],
+                "chrome-canary" => vec!["Google\\Chrome SxS\\Application"],
+                "msedge" => vec!["Microsoft\\Edge\\Application"],
+                "msedge-beta" => vec!["Microsoft\\Edge Beta\\Application"],
+                "msedge-dev" => vec!["Microsoft\\Edge Dev\\Application"],
+                _ => vec![],
+            };
+
+            for base in base_paths.iter().flatten() {
+                for app_dir in &app_dirs {
+                    for exe in &executable_names {
+                        let path = base.join(app_dir).join(exe);
+                        if path.exists() {
+                            return Ok(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        // On macOS, check absolute paths
+        if cfg!(target_os = "macos") {
+            for path_str in &executable_names {
+                let path = PathBuf::from(path_str);
+                if path.exists() {
+                    return Ok(path);
+                }
+            }
+        }
+
+        // On Linux/macOS, also search PATH
+        if !cfg!(windows) {
+            for exe_name in &executable_names {
+                if let Ok(output) = std::process::Command::new("which")
+                    .arg(exe_name)
+                    .output()
+                {
+                    if output.status.success() {
+                        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        let path = PathBuf::from(path_str);
+                        if path.exists() {
+                            return Ok(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(Error::BrowserNotFound(format!(
+            "Could not find {} browser. Please install {} or provide explicit path via executable_path",
+            channel, channel
         )))
     }
 

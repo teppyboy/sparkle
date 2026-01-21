@@ -3,6 +3,7 @@
 //! This module handles launching and managing the ChromeDriver process.
 
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
@@ -20,7 +21,14 @@ impl ChromeDriverProcess {
     /// # Arguments
     /// * `executable_path` - Optional path to ChromeDriver executable. If None, uses the installed path.
     /// * `port` - Port to run ChromeDriver on (default: 9515)
-    pub async fn launch(executable_path: Option<PathBuf>, port: u16) -> Result<Self> {
+    /// * `env` - Environment variables to set for the ChromeDriver process
+    /// * `timeout` - Maximum time to wait for ChromeDriver to start
+    pub async fn launch(
+        executable_path: Option<PathBuf>, 
+        port: u16, 
+        env: &HashMap<String, String>,
+        timeout: Duration,
+    ) -> Result<Self> {
         let driver_path = if let Some(path) = executable_path {
             path
         } else {
@@ -37,30 +45,37 @@ impl ChromeDriverProcess {
 
         let url = format!("http://localhost:{}", port);
 
-        // Launch ChromeDriver process
-        let process = Command::new(&driver_path)
-            .arg(format!("--port={}", port))
-            .spawn()
+        // Launch ChromeDriver process with environment variables
+        let mut cmd = Command::new(&driver_path);
+        cmd.arg(format!("--port={}", port));
+        
+        // Set environment variables
+        cmd.envs(env);
+        
+        let process = cmd.spawn()
             .context(format!("Failed to launch ChromeDriver from {:?}", driver_path))?;
 
         // Wait for ChromeDriver to be ready
-        let mut retries = 30; // 3 seconds total (30 * 100ms)
         let client = reqwest::Client::new();
+        let start = std::time::Instant::now();
         
-        while retries > 0 {
+        loop {
             if let Ok(response) = client.get(&format!("{}/status", url)).send().await {
                 if response.status().is_success() {
                     println!("ChromeDriver launched successfully on {}", url);
                     return Ok(Self { process, url });
                 }
             }
+            
+            if start.elapsed() >= timeout {
+                return Err(anyhow::anyhow!(
+                    "ChromeDriver failed to start within {:?}",
+                    timeout
+                ));
+            }
+            
             sleep(Duration::from_millis(100)).await;
-            retries -= 1;
         }
-
-        Err(anyhow::anyhow!(
-            "ChromeDriver failed to start within 3 seconds"
-        ))
     }
 
     /// Get the ChromeDriver URL
