@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["download","install","list","platform","uninstall"]};

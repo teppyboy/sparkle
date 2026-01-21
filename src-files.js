@@ -1,0 +1,2 @@
+createSrcSidebar('[["sparkle",["",[["async_api",[],["browser.rs","browser_type.rs","element_handle.rs","locator.rs","mod.rs","playwright.rs"]],["cli",[],["download.rs","install.rs","list.rs","mod.rs","platform.rs","uninstall.rs"]],["core",[],["error.rs","mod.rs","options.rs"]],["driver",[],["capabilities.rs","chromedriver_process.rs","mod.rs","webdriver_adapter.rs"]]],["lib.rs"]]]]');
+//{"start":19,"fragment_lengths":[364]}
