@@ -247,7 +247,7 @@ pub struct HttpCredentials {
 }
 
 /// Viewport size configuration
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ViewportSize {
     /// Page width in pixels
     pub width: u32,

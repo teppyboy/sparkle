@@ -3,13 +3,16 @@
 //! This module provides the main Playwright struct which is the entry point
 //! for browser automation.
 
+use std::collections::HashMap;
+
 use crate::async_api::browser_type::{BrowserName, BrowserType};
+use crate::core::devices::DeviceDescriptor;
 use crate::core::Result;
 
 /// Main Playwright instance
 ///
 /// Playwright is the entry point for browser automation. It provides access to
-/// different browser types (Chromium, Firefox, WebKit).
+/// different browser types (Chromium, Firefox, WebKit) and device descriptors.
 ///
 /// # Example
 /// ```no_run
@@ -110,6 +113,70 @@ impl Playwright {
     pub fn stop(&mut self) {
         // Cleanup will happen when the instance is dropped
         // For now, this is a no-op but could be extended for cleanup
+    }
+
+    /// Get a device descriptor by name
+    ///
+    /// Returns `None` if the device name is not found.
+    /// Device descriptors are fetched dynamically from Playwright's official repository
+    /// on first access.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// let playwright = Playwright::new().await?;
+    /// let iphone = playwright.devices("iPhone 12").await?;
+    /// if let Some(device) = iphone {
+    ///     println!("User agent: {}", device.user_agent);
+    ///     // Use device.to_context_options() with browser.new_context()
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn devices(&self, name: &str) -> Result<Option<DeviceDescriptor>> {
+        crate::core::devices::get_device(name).await
+    }
+
+    /// List all available device names
+    ///
+    /// Returns a sorted list of all device names available for emulation.
+    /// Device descriptors are fetched dynamically from Playwright's official repository
+    /// on first access.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// let playwright = Playwright::new().await?;
+    /// for device_name in playwright.list_devices().await? {
+    ///     println!("{}", device_name);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_devices(&self) -> Result<Vec<String>> {
+        crate::core::devices::list_devices().await
+    }
+
+    /// Get all device descriptors
+    ///
+    /// Returns a HashMap of all available device descriptors.
+    /// Device descriptors are fetched dynamically from Playwright's official repository
+    /// on first access.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Playwright;
+    /// # async fn example() -> sparkle::core::Result<()> {
+    /// let playwright = Playwright::new().await?;
+    /// let all_devices = playwright.get_all_devices().await?;
+    /// println!("Found {} devices", all_devices.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_all_devices(&self) -> Result<HashMap<String, DeviceDescriptor>> {
+        crate::core::devices::get_all_devices().await
     }
 }
 
