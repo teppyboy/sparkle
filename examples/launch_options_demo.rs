@@ -20,6 +20,13 @@
 //! ```bash
 //! sparkle install chrome
 //! ```
+//!
+//! # Logging
+//! To see detailed logs during execution:
+//! ```bash
+//! export SPARKLE_LOG_LEVEL=debug  # Options: trace, debug, info, warn, error
+//! cargo run --example launch_options_demo
+//! ```
 
 use sparkle::prelude::*;
 use std::collections::HashMap;
@@ -27,8 +34,8 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing for debugging
-    tracing_subscriber::fmt::init();
+    // Initialize logging from SPARKLE_LOG_LEVEL environment variable
+    init_logging();
 
     println!("=== Sparkle Launch Options Demo ===\n");
 

@@ -27,13 +27,21 @@
 //! # or
 //! export CHROMEDRIVER_URL=http://localhost:9515
 //! ```
+//!
+//! # Logging
+//! To enable logging, set the SPARKLE_LOG_LEVEL environment variable:
+//! ```bash
+//! export SPARKLE_LOG_LEVEL=debug  # Options: trace, debug, info, warn, error
+//! cargo run --example basic_navigation
+//! ```
 
 use sparkle::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing for debugging (optional)
-    tracing_subscriber::fmt::init();
+    // Initialize logging from SPARKLE_LOG_LEVEL environment variable
+    // If not set, logging is disabled by default
+    init_logging();
 
     println!("Starting Sparkle basic navigation example...");
 

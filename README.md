@@ -86,9 +86,33 @@ export CHROMEDRIVER_URL=http://localhost:9515
 export CHROME_PATH=/path/to/chrome
 ```
 
+### Logging
+
+Sparkle uses [tracing](https://github.com/tokio-rs/tracing) for structured logging. Enable logs by setting the `SPARKLE_LOG_LEVEL` environment variable:
+
+```bash
+# Set log level (trace, debug, info, warn, error)
+export SPARKLE_LOG_LEVEL=info
+```
+
+**In your code:**
+
+```rust
+use sparkle::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging from SPARKLE_LOG_LEVEL environment variable
+    init_logging();
+    
+    // Your automation code here...
+    Ok(())
+}
+```
+
 ## Examples
 
-See [`examples/`](examples/) for how to use the library, to run an example execute:
+See [`examples/`](examples/) for how to use the library, to run an example:
 
 ```bash
 cargo run --example basic_navigation
@@ -106,13 +130,6 @@ Sparkle is built on three main layers:
 ## Project Status
 
 This project is in very early stage, do NOT expect anything to work yet.
-
-**Implemented:**
-- Core async API with Chromium support
-- Auto-waiting Locators with element interactions
-- Screenshot capture & JavaScript evaluation  
-- CLI tool with automatic browser/driver management
-- Playwright cache compatibility
 
 ## License
 

@@ -86,6 +86,10 @@ impl BrowserType {
 
     /// Launch Chromium browser
     async fn launch_chromium(&self, options: LaunchOptions) -> Result<Browser> {
+        tracing::info!("Launching Chromium browser");
+        tracing::debug!("Launch options: headless={:?}, devtools={:?}, timeout={:?}", 
+            options.headless, options.devtools, options.timeout);
+        
         // Build capabilities
         let mut caps = ChromiumCapabilities::new();
 
@@ -100,12 +104,17 @@ impl BrowserType {
 
         // Add devtools argument if requested
         if options.devtools == Some(true) {
+            tracing::debug!("DevTools enabled, adding --auto-open-devtools-for-tabs argument");
             caps = caps.arg("--auto-open-devtools-for-tabs");
         }
 
         // Add custom arguments
         for arg in &options.args {
             caps = caps.arg(arg.clone());
+        }
+        
+        if !options.args.is_empty() {
+            tracing::debug!("Added {} custom arguments", options.args.len());
         }
 
         // Build list of default arguments for stability
@@ -133,31 +142,40 @@ impl BrowserType {
         // Priority: executable_path > channel > find_installed_chrome
         if let Some(executable_path) = options.executable_path {
             // Use provided executable path
+            tracing::info!("Using provided executable path: {}", executable_path.display());
             caps = caps.binary(executable_path);
         } else if let Some(channel) = &options.channel {
             // Try to find browser by channel
+            tracing::info!("Searching for browser by channel: {}", channel);
             let channel_path = Self::find_chrome_by_channel(channel)?;
+            tracing::info!("Found {} at: {}", channel, channel_path.display());
             caps = caps.binary(channel_path);
         } else {
             // Find and set Chrome binary path from installed location
             // This will use the latest versioned Chrome installation
             if let Ok(chrome_path) = ChromeDriverProcess::find_installed_chrome() {
+                tracing::info!("Using installed Chrome: {}", chrome_path.display());
                 caps = caps.binary(chrome_path);
+            } else {
+                tracing::warn!("Could not find installed Chrome, will use system default");
             }
         }
 
         // Add environment variables
         if !options.env.is_empty() {
+            tracing::debug!("Setting {} environment variables", options.env.len());
             caps = caps.envs(options.env.clone());
         }
 
         // Set downloads path if specified
         if let Some(downloads_path) = options.downloads_path {
+            tracing::debug!("Setting downloads path: {}", downloads_path.display());
             caps = caps.downloads_path(downloads_path);
         }
 
         // Set proxy if specified
         if let Some(proxy) = options.proxy {
+            tracing::debug!("Configuring proxy: {}", proxy.server);
             caps = caps.proxy(&proxy.server, proxy.bypass.as_deref());
         }
 
@@ -167,10 +185,13 @@ impl BrowserType {
         let total_timeout = options.timeout.unwrap_or(std::time::Duration::from_secs(30));
         // Split timeout: 60% for ChromeDriver launch, 40% for browser connection
         let driver_timeout = total_timeout.mul_f32(0.6);
+        
+        tracing::debug!("Total timeout: {:?}, ChromeDriver timeout: {:?}", total_timeout, driver_timeout);
 
         // Determine ChromeDriver URL or launch ChromeDriver automatically
         let (chromedriver_url, driver_process) = if let Ok(url) = std::env::var("CHROMEDRIVER_URL") {
             // Use custom ChromeDriver URL from environment variable
+            tracing::info!("Using ChromeDriver URL from environment: {}", url);
             (url, None)
         } else {
             // Check if custom ChromeDriver path is provided via CHROMEDRIVER_PATH
@@ -178,18 +199,27 @@ impl BrowserType {
                 .ok()
                 .map(PathBuf::from);
             
+            if let Some(ref path) = driver_path {
+                tracing::info!("Using custom ChromeDriver path: {}", path.display());
+            } else {
+                tracing::debug!("Launching ChromeDriver from installed location");
+            }
+            
             // Launch ChromeDriver automatically from installed location or custom path
             let process = ChromeDriverProcess::launch(driver_path, 9515, &options.env, driver_timeout)
                 .await
                 .map_err(|e| Error::internal(format!("Failed to launch ChromeDriver: {}", e)))?;
             let url = process.url().to_string();
+            tracing::info!("ChromeDriver launched successfully at {}", url);
             (url, Some(process))
         };
 
         // Create WebDriver adapter with slow_mo
+        tracing::debug!("Creating WebDriver adapter, slow_mo: {:?}", options.slow_mo);
         let adapter = WebDriverAdapter::create(&chromedriver_url, capabilities, options.slow_mo).await?;
 
         // Create and return browser with driver process
+        tracing::info!("Browser launched successfully");
         Ok(Browser::new(adapter, driver_process))
     }
 
@@ -231,6 +261,9 @@ impl BrowserType {
 
     /// Connect to Chromium via remote WebDriver
     async fn connect_chromium(&self, endpoint_url: &str, options: ConnectOptions) -> Result<Browser> {
+        tracing::info!("Connecting to remote WebDriver at: {}", endpoint_url);
+        tracing::debug!("Connect options: timeout={:?}, slow_mo={:?}", options.timeout, options.slow_mo);
+        
         // Build capabilities from options
         let mut caps = ChromiumCapabilities::new();
 
@@ -255,18 +288,25 @@ impl BrowserType {
         // Determine timeout for connection
         let timeout = options.timeout.unwrap_or(std::time::Duration::from_secs(30));
         let start = std::time::Instant::now();
+        
+        tracing::debug!("Connection timeout: {:?}", timeout);
 
         // Attempt to connect to the remote WebDriver server
         let adapter = loop {
             match WebDriverAdapter::create(endpoint_url, capabilities.clone(), options.slow_mo).await {
-                Ok(adapter) => break adapter,
+                Ok(adapter) => {
+                    tracing::info!("Successfully connected to remote WebDriver");
+                    break adapter;
+                }
                 Err(e) => {
                     if start.elapsed() >= timeout {
+                        tracing::error!("Failed to connect after {:?}: {}", timeout, e);
                         return Err(Error::connection_failed(format!(
                             "Failed to connect to WebDriver at '{}' after {:?}: {}",
                             endpoint_url, timeout, e
                         )));
                     }
+                    tracing::trace!("Connection attempt failed, retrying: {}", e);
                     // Wait a bit before retrying
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
@@ -329,6 +369,9 @@ impl BrowserType {
         endpoint_url: &str,
         options: ConnectOverCdpOptions,
     ) -> Result<Browser> {
+        tracing::info!("Connecting to CDP endpoint at: {}", endpoint_url);
+        tracing::debug!("CDP options: timeout={:?}, slow_mo={:?}", options.timeout, options.slow_mo);
+        
         // For CDP connections, we use minimal capabilities
         // The browser is already running with its own configuration
         let caps = ChromiumCapabilities::new().build();

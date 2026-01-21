@@ -30,19 +30,24 @@ impl ChromeDriverProcess {
         timeout: Duration,
     ) -> Result<Self> {
         let driver_path = if let Some(path) = executable_path {
+            tracing::debug!("Using provided ChromeDriver path: {}", path.display());
             path
         } else {
+            tracing::debug!("Searching for installed ChromeDriver");
             Self::find_installed_chromedriver()?
         };
 
         // Verify the executable exists
         if !driver_path.exists() {
+            tracing::error!("ChromeDriver executable not found at: {:?}", driver_path);
             return Err(anyhow::anyhow!(
                 "ChromeDriver executable not found at: {:?}\nRun 'sparkle install chrome' to download ChromeDriver",
                 driver_path
             ));
         }
 
+        tracing::info!("Launching ChromeDriver from: {}", driver_path.display());
+        
         let url = format!("http://localhost:{}", port);
 
         // Launch ChromeDriver process with environment variables
@@ -50,10 +55,15 @@ impl ChromeDriverProcess {
         cmd.arg(format!("--port={}", port));
         
         // Set environment variables
-        cmd.envs(env);
+        if !env.is_empty() {
+            tracing::debug!("Setting {} environment variables for ChromeDriver", env.len());
+            cmd.envs(env);
+        }
         
         let process = cmd.spawn()
             .context(format!("Failed to launch ChromeDriver from {:?}", driver_path))?;
+
+        tracing::debug!("ChromeDriver process spawned, waiting for readiness (timeout: {:?})", timeout);
 
         // Wait for ChromeDriver to be ready
         let client = reqwest::Client::new();
@@ -62,12 +72,14 @@ impl ChromeDriverProcess {
         loop {
             if let Ok(response) = client.get(&format!("{}/status", url)).send().await {
                 if response.status().is_success() {
+                    tracing::info!("ChromeDriver ready at {} (took {:?})", url, start.elapsed());
                     println!("ChromeDriver launched successfully on {}", url);
                     return Ok(Self { process, url });
                 }
             }
             
             if start.elapsed() >= timeout {
+                tracing::error!("ChromeDriver failed to start within {:?}", timeout);
                 return Err(anyhow::anyhow!(
                     "ChromeDriver failed to start within {:?}",
                     timeout

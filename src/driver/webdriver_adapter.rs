@@ -53,11 +53,16 @@ impl WebDriverAdapter {
         capabilities: std::collections::HashMap<String, serde_json::Value>,
         slow_mo: Option<Duration>,
     ) -> Result<Self> {
+        tracing::debug!("Creating WebDriver connection to: {}", url);
+        tracing::trace!("Capabilities: {:?}", capabilities);
+        
         // Convert HashMap to serde_json::Map
         let caps_map: serde_json::Map<String, serde_json::Value> = 
             capabilities.into_iter().collect();
         let caps: Capabilities = caps_map.into();
         let driver = WebDriver::new(url, caps).await?;
+        
+        tracing::info!("WebDriver connection established");
         Ok(Self::new_with_slow_mo(driver, slow_mo))
     }
 
@@ -99,6 +104,7 @@ impl WebDriverAdapter {
     /// Navigate to a URL
     pub async fn goto(&self, url: &str) -> Result<()> {
         self.apply_slow_mo().await;
+        tracing::debug!("WebDriver: navigating to {}", url);
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         driver.goto(url).await?;
@@ -172,9 +178,11 @@ impl WebDriverAdapter {
 
     /// Close the browser and clean up
     pub async fn close(&self) -> Result<()> {
+        tracing::debug!("Closing WebDriver session");
         let mut guard = self.driver.write().await;
         if let Some(driver) = guard.take() {
             driver.quit().await?;
+            tracing::info!("WebDriver session closed");
         }
         Ok(())
     }

@@ -62,12 +62,17 @@ impl Browser {
     /// # }
     /// ```
     pub async fn new_context(&self, options: BrowserContextOptions) -> Result<BrowserContext> {
+        tracing::debug!("Creating new browser context");
+        
         if self.adapter.is_closed().await {
+            tracing::error!("Cannot create context: browser is closed");
             return Err(Error::BrowserClosed);
         }
 
         let context = BrowserContext::new(Arc::clone(&self.adapter), options);
         self.contexts.write().await.push(context.clone());
+        
+        tracing::info!("Browser context created successfully");
         Ok(context)
     }
 
@@ -86,8 +91,11 @@ impl Browser {
     /// # }
     /// ```
     pub async fn new_page(&self) -> Result<Page> {
+        tracing::debug!("Creating new page");
         let context = self.new_context(Default::default()).await?;
-        context.new_page().await
+        let page = context.new_page().await?;
+        tracing::info!("Page created successfully");
+        Ok(page)
     }
 
     /// Get all browser contexts
@@ -106,8 +114,11 @@ impl Browser {
     /// # }
     /// ```
     pub async fn close(&self) -> Result<()> {
+        tracing::info!("Closing browser");
+        
         // Close all contexts
         let contexts = self.contexts.write().await;
+        tracing::debug!("Closing {} browser contexts", contexts.len());
         for context in contexts.iter() {
             let _ = context.close().await;
         }
@@ -115,6 +126,7 @@ impl Browser {
 
         // Close the browser
         self.adapter.close().await?;
+        tracing::info!("Browser closed successfully");
         Ok(())
     }
 
@@ -235,10 +247,16 @@ impl Page {
         url: &str,
         _options: crate::core::NavigationOptions,
     ) -> Result<()> {
+        tracing::info!("Navigating to: {}", url);
+        
         if *self.closed.read().await {
+            tracing::error!("Cannot navigate: page is closed");
             return Err(Error::PageClosed);
         }
-        self.adapter.goto(url).await
+        
+        self.adapter.goto(url).await?;
+        tracing::debug!("Navigation completed successfully");
+        Ok(())
     }
 
     /// Get the current URL
@@ -321,9 +339,12 @@ impl Page {
     /// # }
     /// ```
     pub async fn click(&self, selector: &str, options: ClickOptions) -> Result<()> {
+        tracing::debug!("Clicking element: {}", selector);
+        
         if *self.closed.read().await {
             return Err(Error::PageClosed);
         }
+        
         self.locator(selector).click(options).await
     }
 
