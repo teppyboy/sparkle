@@ -23,10 +23,14 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
 
+      - name: Workaround for index.html redirection
+        run: "echo '<meta http-equiv=\"refresh\" content=\"0; url=/sparkle/index.html\">' > target/doc/index.html"
+
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: target/doc
+
   deploy:
     name: Deploy to GitHub Pages
     needs: build
