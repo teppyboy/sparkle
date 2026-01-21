@@ -90,8 +90,18 @@ impl BrowserType {
         tracing::debug!("Launch options: headless={:?}, devtools={:?}, timeout={:?}", 
             options.headless, options.devtools, options.timeout);
         
+        // Get stealth options (default to enabled)
+        let stealth = options.stealth.clone().unwrap_or_default();
+        
+        if stealth.enabled {
+            tracing::info!("Stealth mode enabled (Patchright-style undetectable automation)");
+            if !stealth.console_enabled {
+                tracing::debug!("Console API disabled for stealth");
+            }
+        }
+        
         // Build capabilities
-        let mut caps = ChromiumCapabilities::new();
+        let mut caps = ChromiumCapabilities::new().stealth(stealth.clone());
 
         // Handle devtools option - if devtools is true, force headless to false
         let headless = if options.devtools == Some(true) {
@@ -125,7 +135,7 @@ impl BrowserType {
             default_args.push("--no-sandbox".to_string());
         }
         default_args.push("--disable-dev-shm-usage".to_string());
-        default_args.push("--disable-blink-features=AutomationControlled".to_string());
+        // Note: --disable-blink-features=AutomationControlled is now added in capabilities builder with stealth mode
 
         // Filter default args based on ignore options
         if options.ignore_all_default_args != Some(true) {
@@ -218,9 +228,9 @@ impl BrowserType {
         tracing::debug!("Creating WebDriver adapter, slow_mo: {:?}", options.slow_mo);
         let adapter = WebDriverAdapter::create(&chromedriver_url, capabilities, options.slow_mo).await?;
 
-        // Create and return browser with driver process
+        // Create and return browser with driver process and stealth options
         tracing::info!("Browser launched successfully");
-        Ok(Browser::new(adapter, driver_process))
+        Ok(Browser::new(adapter, driver_process, Some(stealth)))
     }
 
     /// Connect to an existing browser instance via remote WebDriver
@@ -314,7 +324,8 @@ impl BrowserType {
         };
 
         // Create and return browser without driver process (remote connection)
-        Ok(Browser::new(adapter, None))
+        // Stealth not applicable for remote connections
+        Ok(Browser::new(adapter, None, None))
     }
 
     /// Connect to a browser via Chrome DevTools Protocol
@@ -401,7 +412,8 @@ impl BrowserType {
 
         // Create and return browser without driver process (remote connection)
         // CDP features can be accessed via thirtyfour's ChromeDevTools extension
-        Ok(Browser::new(adapter, None))
+        // Stealth not applicable for remote connections
+        Ok(Browser::new(adapter, None, None))
     }
 
     /// Get the path to the browser executable

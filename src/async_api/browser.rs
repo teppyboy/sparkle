@@ -31,17 +31,23 @@ pub struct Browser {
     contexts: Arc<RwLock<Vec<BrowserContext>>>,
     #[allow(dead_code)]
     driver_process: Option<ChromeDriverProcess>,
+    stealth_options: Option<crate::core::StealthOptions>,
 }
 
 impl Browser {
     /// Create a new Browser instance
     ///
     /// This is typically not called directly; use `BrowserType::launch()` instead.
-    pub(crate) fn new(adapter: WebDriverAdapter, driver_process: Option<ChromeDriverProcess>) -> Self {
+    pub(crate) fn new(
+        adapter: WebDriverAdapter,
+        driver_process: Option<ChromeDriverProcess>,
+        stealth_options: Option<crate::core::StealthOptions>,
+    ) -> Self {
         Self {
             adapter: Arc::new(adapter),
             contexts: Arc::new(RwLock::new(Vec::new())),
             driver_process,
+            stealth_options,
         }
     }
 
@@ -93,7 +99,12 @@ impl Browser {
     /// ```
     pub async fn new_page(&self) -> Result<Page> {
         tracing::debug!("Creating new page");
-        let context = self.new_context(Default::default()).await?;
+        
+        // Create context with stealth options from browser
+        let mut context_options = BrowserContextOptions::default();
+        context_options.stealth = self.stealth_options.clone();
+        
+        let context = self.new_context(context_options).await?;
         let page = context.new_page().await?;
         tracing::info!("Page created successfully");
         Ok(page)
@@ -242,15 +253,18 @@ pub struct BrowserContext {
     adapter: Arc<WebDriverAdapter>,
     _options: BrowserContextOptions,
     pages: Arc<RwLock<Vec<Page>>>,
+    stealth_options: Option<crate::core::StealthOptions>,
 }
 
 impl BrowserContext {
     /// Create a new browser context
     pub(crate) fn new(adapter: Arc<WebDriverAdapter>, options: BrowserContextOptions) -> Self {
+        let stealth_options = options.stealth.clone();
         Self {
             adapter,
             _options: options,
             pages: Arc::new(RwLock::new(Vec::new())),
+            stealth_options,
         }
     }
 
@@ -269,7 +283,7 @@ impl BrowserContext {
             return Err(Error::ContextClosed);
         }
 
-        let page = Page::new(Arc::clone(&self.adapter));
+        let page = Page::new(Arc::clone(&self.adapter), self.stealth_options.clone()).await?;
         self.pages.write().await.push(page.clone());
         Ok(page)
     }
@@ -300,11 +314,114 @@ pub struct Page {
 
 impl Page {
     /// Create a new page
-    pub(crate) fn new(adapter: Arc<WebDriverAdapter>) -> Self {
-        Self {
+    pub(crate) async fn new(
+        adapter: Arc<WebDriverAdapter>,
+        stealth_options: Option<crate::core::StealthOptions>,
+    ) -> Result<Self> {
+        let page = Self {
             adapter,
             closed: Arc::new(RwLock::new(false)),
+        };
+        
+        // Inject stealth script if stealth is enabled
+        if let Some(stealth_opts) = stealth_options {
+            if stealth_opts.enabled {
+                page.inject_stealth_features(&stealth_opts).await?;
+            }
         }
+        
+        Ok(page)
+    }
+    
+    /// Inject all stealth features via CDP
+    async fn inject_stealth_features(&self, stealth_options: &crate::core::StealthOptions) -> Result<()> {
+        use serde_json::json;
+        
+        // 1. Set User-Agent and headers via CDP if header_alignment is enabled
+        if stealth_options.header_alignment {
+            // Get browser version
+            let version = self.adapter.browser_version().await.unwrap_or_else(|_| "120.0.0.0".to_string());
+            
+            // Generate headers configuration
+            let headers_config = crate::core::stealth_headers::HeadersConfig::from_stealth_options(
+                stealth_options,
+                &version,
+            );
+            
+            // Use CDP Network.setUserAgentOverride
+            let params = json!({
+                "userAgent": headers_config.user_agent,
+                "acceptLanguage": headers_config.accept_language,
+                "platform": headers_config.platform,
+            });
+            
+            self.adapter.execute_cdp_with_params("Network.setUserAgentOverride", params)
+                .await
+                .map_err(|e| Error::ActionFailed(format!("Failed to set user agent: {}", e)))?;
+            
+            tracing::debug!("User-Agent and headers set successfully");
+        }
+        
+        // 2. Set timezone if specified
+        if let Some(ref timezone_id) = stealth_options.timezone_id {
+            let params = json!({
+                "timezoneId": timezone_id,
+            });
+            
+            self.adapter.execute_cdp_with_params("Emulation.setTimezoneOverride", params)
+                .await
+                .map_err(|e| Error::ActionFailed(format!("Failed to set timezone: {}", e)))?;
+            
+            tracing::debug!("Timezone set to: {}", timezone_id);
+        }
+        
+        // 3. Set locale if specified
+        if let Some(ref locale) = stealth_options.locale {
+            let params = json!({
+                "locale": locale,
+            });
+            
+            self.adapter.execute_cdp_with_params("Emulation.setLocaleOverride", params)
+                .await
+                .ok(); // Ignore error - this command might not be supported in all versions
+            
+            tracing::debug!("Locale set to: {}", locale);
+        }
+        
+        // 4. Set geolocation if specified
+        if let Some((latitude, longitude, accuracy)) = stealth_options.geolocation {
+            let params = json!({
+                "latitude": latitude,
+                "longitude": longitude,
+                "accuracy": accuracy,
+            });
+            
+            self.adapter.execute_cdp_with_params("Emulation.setGeolocationOverride", params)
+                .await
+                .map_err(|e| Error::ActionFailed(format!("Failed to set geolocation: {}", e)))?;
+            
+            tracing::debug!("Geolocation set to: {}, {}", latitude, longitude);
+        }
+        
+        // 5. Inject stealth JavaScript
+        let script = crate::core::stealth::get_stealth_script(
+            stealth_options.webgl_spoof,
+            stealth_options.canvas_noise,
+            stealth_options.permissions_patch,
+        );
+        
+        // Use CDP Page.addScriptToEvaluateOnNewDocument to inject on every frame/page load
+        let params = json!({
+            "source": script,
+            "runImmediately": true
+        });
+        
+        self.adapter.execute_cdp_with_params("Page.addScriptToEvaluateOnNewDocument", params)
+            .await
+            .map_err(|e| Error::ActionFailed(format!("Failed to inject stealth script: {}", e)))?;
+        
+        tracing::debug!("Stealth features injected successfully");
+        Ok(())
     }
 
     /// Navigate to a URL

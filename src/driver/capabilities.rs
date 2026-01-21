@@ -7,6 +7,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::core::StealthOptions;
+
 /// Builder for Chromium capabilities
 pub struct ChromiumCapabilities {
     headless: bool,
@@ -15,6 +17,7 @@ pub struct ChromiumCapabilities {
     env: HashMap<String, String>,
     prefs: HashMap<String, serde_json::Value>,
     downloads_path: Option<PathBuf>,
+    stealth: Option<StealthOptions>,
 }
 
 impl ChromiumCapabilities {
@@ -27,6 +30,7 @@ impl ChromiumCapabilities {
             env: HashMap::new(),
             prefs: HashMap::new(),
             downloads_path: None,
+            stealth: None,
         }
     }
 
@@ -89,6 +93,12 @@ impl ChromiumCapabilities {
         self
     }
 
+    /// Set stealth options
+    pub fn stealth(mut self, stealth: StealthOptions) -> Self {
+        self.stealth = Some(stealth);
+        self
+    }
+
     /// Add proxy configuration via command-line arguments
     pub fn proxy(mut self, server: &str, bypass: Option<&str>) -> Self {
         self.args.push(format!("--proxy-server={}", server));
@@ -102,6 +112,31 @@ impl ChromiumCapabilities {
     /// Build the capabilities as a HashMap
     pub fn build(self) -> HashMap<String, serde_json::Value> {
         let mut args = self.args;
+
+        // Apply stealth mode switches (Patchright-style)
+        let stealth_enabled = self.stealth.as_ref().map(|s| s.enabled).unwrap_or(true);
+
+        if stealth_enabled {
+            // Add stealth-specific arguments
+            args.push("--disable-blink-features=AutomationControlled".to_string());
+
+            // Remove automation-revealing arguments that might be added elsewhere
+            // Patchright removes these to avoid detection:
+            args.retain(|arg| {
+                !arg.contains("--enable-automation")
+                    && !arg.contains("--disable-popup-blocking")
+                    && !arg.contains("--disable-component-update")
+                    && !arg.contains("--disable-default-apps")
+                    && !arg.contains("--disable-extensions")
+                    && !arg.contains("--disable-client-side-phishing-detection")
+                    && !arg.contains("--disable-component-extensions-with-background-pages")
+                    && !arg.contains("--allow-pre-commit-input")
+                    && !arg.contains("--disable-ipc-flooding-protection")
+                    && !arg.contains("--metrics-recording-only")
+                    && !arg.contains("--unsafely-disable-devtools-self-xss-warnings")
+                    && !arg.contains("--disable-back-forward-cache")
+            });
+        }
 
         if self.headless {
             args.push("--headless".to_string());

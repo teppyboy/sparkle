@@ -9,6 +9,69 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Stealth configuration for undetectable browser automation
+///
+/// Patchright-inspired stealth mode that makes Chromium-based browsers
+/// undetectable by anti-bot systems. This includes removing automation flags,
+/// spoofing navigator properties, and hiding automation artifacts.
+///
+/// **Note**: Stealth is Chromium-only. Firefox and WebKit are not supported.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StealthOptions {
+    /// Enable stealth mode. Defaults to true for Chromium.
+    pub enabled: bool,
+
+    /// Enable console API. When false (default), console is disabled to avoid detection.
+    /// Setting to true reduces stealth effectiveness.
+    pub console_enabled: bool,
+
+    /// Spoof WebGL vendor and renderer. Defaults to true.
+    pub webgl_spoof: bool,
+
+    /// Add canvas noise for fingerprint randomization. Defaults to false.
+    pub canvas_noise: bool,
+
+    /// Patch permissions.query to avoid detection. Defaults to true.
+    pub permissions_patch: bool,
+
+    /// Automatically align headers (User-Agent, Accept-Language, sec-ch-ua*).
+    /// Defaults to true.
+    pub header_alignment: bool,
+
+    /// Allow user-provided custom headers even when stealth is on.
+    /// Setting to true may reduce stealth effectiveness. Defaults to false.
+    pub allow_user_headers: bool,
+
+    /// Locale for Accept-Language header (e.g., "en-US", "en-GB").
+    /// If None, uses "en-US,en".
+    pub locale: Option<String>,
+
+    /// Timezone ID for emulation (e.g., "America/New_York", "Europe/London").
+    /// If None, uses system timezone.
+    pub timezone_id: Option<String>,
+
+    /// Geolocation coordinates for emulation (latitude, longitude, accuracy).
+    /// If None, geolocation is not emulated.
+    pub geolocation: Option<(f64, f64, f64)>,
+}
+
+impl Default for StealthOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            console_enabled: false,
+            webgl_spoof: true,
+            canvas_noise: false,
+            permissions_patch: true,
+            header_alignment: true,
+            allow_user_headers: false,
+            locale: None,
+            timezone_id: None,
+            geolocation: None,
+        }
+    }
+}
+
 /// Options for launching a browser
 #[derive(Debug, Clone, Builder, Default)]
 #[builder(default, setter(into, strip_option))]
@@ -66,6 +129,10 @@ pub struct LaunchOptions {
     /// List of default arguments to filter out.
     #[builder(default)]
     pub ignore_default_args: Vec<String>,
+
+    /// Stealth mode configuration (Chromium-only).
+    /// Defaults to enabled for undetectable automation.
+    pub stealth: Option<StealthOptions>,
 }
 
 /// Network proxy configuration
@@ -215,6 +282,13 @@ pub struct BrowserContextOptions {
 
     /// Video size
     pub record_video_size: Option<ViewportSize>,
+
+    /// Control focus behavior (Patchright extension). Defaults to true.
+    pub focus_control: Option<bool>,
+
+    /// Stealth mode configuration (Chromium-only).
+    /// Defaults to enabled for undetectable automation.
+    pub stealth: Option<StealthOptions>,
 }
 
 /// Color scheme preference
