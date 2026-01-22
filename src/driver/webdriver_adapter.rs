@@ -263,19 +263,8 @@ impl WebDriverAdapter {
     /// * `frame_selector` - CSS selector to locate the iframe element
     pub async fn switch_to_frame_by_selector(&self, frame_selector: &str) -> Result<()> {
         self.apply_slow_mo().await;
-        // Use JavaScript to validate frame exists
-        let script = format!(
-            r#"
-            var frame = document.querySelector('{}');
-            if (!frame) throw new Error('Frame not found: {}');
-            return true;
-            "#,
-            frame_selector, frame_selector
-        );
-        let _result = self.execute_script(&script).await?;
         
-        // Now we need to find the frame index to use enter_frame
-        // For now, let's use a workaround: find all iframes and match by selector
+        // Find all iframes and locate the index by matching selector
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         let frames = driver.find_all(By::Tag("iframe")).await?;
@@ -283,15 +272,20 @@ impl WebDriverAdapter {
         // Find matching frame by selector
         for (idx, frame_elem) in frames.iter().enumerate() {
             // Check if this frame matches the selector using JS
-            let matches_script = format!(
-                r#"
+            // Pass selector as argument to avoid quote escaping issues
+            let matches_script = r#"
                 var frame = arguments[0];
-                var selector = '{}';
-                return frame.matches(selector);
-                "#,
-                frame_selector
-            );
-            let args = vec![frame_elem.to_json()?];
+                var selector = arguments[1];
+                try {
+                    return frame.matches(selector);
+                } catch (e) {
+                    return false;
+                }
+            "#;
+            let args = vec![
+                frame_elem.to_json()?,
+                serde_json::Value::String(frame_selector.to_string()),
+            ];
             let matches = self.execute_script_with_args(&matches_script, args).await?;
             
             if matches.as_bool().unwrap_or(false) {

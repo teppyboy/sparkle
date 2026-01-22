@@ -170,13 +170,17 @@ impl ElementInFrame {
         // Switch to frame context
         self.frame_locator.switch_to_frame_context().await?;
         
-        // Find and click element
-        let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
-        element.click().await?;
+        // Find and click element, ensuring we always switch back to default content
+        let result = async {
+            let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
+            element.click().await?;
+            Ok(())
+        }.await;
         
-        // Switch back to default content
+        // Always switch back to default content, even if there was an error
         self.frame_locator.adapter.switch_to_default_content().await?;
-        Ok(())
+        
+        result
     }
 
     /// Fill text into an input element within the frame
@@ -184,14 +188,18 @@ impl ElementInFrame {
         // Switch to frame context
         self.frame_locator.switch_to_frame_context().await?;
         
-        // Find and fill element
-        let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
-        element.clear().await?;
-        element.send_keys(text).await?;
+        // Find and fill element, ensuring we always switch back
+        let result = async {
+            let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
+            element.clear().await?;
+            element.send_keys(text).await?;
+            Ok(())
+        }.await;
         
-        // Switch back to default content
+        // Always switch back to default content, even if there was an error
         self.frame_locator.adapter.switch_to_default_content().await?;
-        Ok(())
+        
+        result
     }
 
     /// Type text into an element with delays between keystrokes
@@ -205,13 +213,17 @@ impl ElementInFrame {
         // Switch to frame context
         self.frame_locator.switch_to_frame_context().await?;
         
-        // Find element and get text
-        let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
-        let text = element.text().await?;
+        // Find element and get text, ensuring we always switch back
+        let result = async {
+            let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
+            let text = element.text().await?;
+            Ok(Some(text))
+        }.await;
         
-        // Switch back to default content
+        // Always switch back to default content, even if there was an error
         self.frame_locator.adapter.switch_to_default_content().await?;
-        Ok(Some(text))
+        
+        result
     }
 
     /// Get inner text of the element
@@ -224,13 +236,17 @@ impl ElementInFrame {
         // Switch to frame context
         self.frame_locator.switch_to_frame_context().await?;
         
-        // Find element and get attribute
-        let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
-        let attr = element.attr(name).await?;
+        // Find element and get attribute, ensuring we always switch back
+        let result = async {
+            let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
+            let attr = element.attr(name).await?;
+            Ok(attr)
+        }.await;
         
-        // Switch back to default content
+        // Always switch back to default content, even if there was an error
         self.frame_locator.adapter.switch_to_default_content().await?;
-        Ok(attr)
+        
+        result
     }
 
     /// Check if element is visible
@@ -238,13 +254,17 @@ impl ElementInFrame {
         // Switch to frame context
         self.frame_locator.switch_to_frame_context().await?;
         
-        // Find element and check visibility
-        let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
-        let visible = element.is_displayed().await?;
+        // Find element and check visibility, ensuring we always switch back
+        let result = async {
+            let element = self.frame_locator.adapter.find_element(&self.element_selector).await?;
+            let visible = element.is_displayed().await?;
+            Ok(visible)
+        }.await;
         
-        // Switch back to default content
+        // Always switch back to default content, even if there was an error
         self.frame_locator.adapter.switch_to_default_content().await?;
-        Ok(visible)
+        
+        result
     }
 
     /// Wait for the element to be visible
