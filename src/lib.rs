@@ -48,9 +48,9 @@ pub mod prelude {
         init_logging, init_logging_with_level,
         BrowserContextOptions, BrowserContextOptionsBuilder, ClickOptions, ClickOptionsBuilder,
         ConnectOptions, ConnectOptionsBuilder, ConnectOverCdpOptions, ConnectOverCdpOptionsBuilder,
-        Error, LaunchOptions, LaunchOptionsBuilder, NavigationOptions, NavigationOptionsBuilder,
-        ProxySettings, Result, ScreenshotOptions, ScreenshotOptionsBuilder, TypeOptions, 
-        TypeOptionsBuilder,
+        CookieState, Error, LaunchOptions, LaunchOptionsBuilder, NameValue, NavigationOptions, 
+        NavigationOptionsBuilder, OriginState, ProxySettings, Result, SameSite, ScreenshotOptions, 
+        ScreenshotOptionsBuilder, StorageState, StorageStateSource, TypeOptions, TypeOptionsBuilder,
     };
 }
 

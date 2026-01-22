@@ -289,6 +289,11 @@ pub struct BrowserContextOptions {
     /// Stealth mode configuration (Chromium-only).
     /// Defaults to enabled for undetectable automation.
     pub stealth: Option<StealthOptions>,
+
+    /// Populate context with given storage state.
+    /// This can be a path to a JSON file or an inline StorageState object.
+    /// Allows restoring cookies, localStorage, and sessionStorage from a previous session.
+    pub storage_state: Option<crate::core::storage::StorageStateSource>,
 }
 
 /// Color scheme preference

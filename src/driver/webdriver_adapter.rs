@@ -333,6 +333,185 @@ impl WebDriverAdapter {
         // If all else fails, return unknown
         Ok("Unknown".to_string())
     }
+
+    /// Get all cookies via CDP
+    ///
+    /// Returns all cookies for all origins in the browser context.
+    /// This is Chromium-only (uses CDP).
+    pub async fn get_cookies(&self) -> Result<Vec<crate::core::storage::CookieState>> {
+        use crate::core::storage::{CookieState, SameSite};
+        
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        let result = dev_tools.execute_cdp("Network.getAllCookies").await
+            .map_err(|e| Error::ActionFailed(format!("Failed to get cookies via CDP: {}", e)))?;
+        
+        // Parse CDP response
+        let cookies_json = result.get("cookies")
+            .ok_or_else(|| Error::ActionFailed("CDP response missing 'cookies' field".to_string()))?;
+        
+        let cdp_cookies: Vec<serde_json::Value> = serde_json::from_value(cookies_json.clone())
+            .map_err(|e| Error::ActionFailed(format!("Failed to parse cookies: {}", e)))?;
+        
+        let mut cookies = Vec::new();
+        for cookie in cdp_cookies {
+            let name = cookie.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let value = cookie.get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let domain = cookie.get("domain")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let path = cookie.get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("/")
+                .to_string();
+            let expires = cookie.get("expires")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(-1.0);
+            let http_only = cookie.get("httpOnly")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let secure = cookie.get("secure")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            
+            let same_site_str = cookie.get("sameSite")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Lax");
+            let same_site = match same_site_str {
+                "Strict" => SameSite::Strict,
+                "None" => SameSite::None,
+                _ => SameSite::Lax,
+            };
+            
+            cookies.push(CookieState {
+                name,
+                value,
+                domain,
+                path,
+                expires,
+                http_only,
+                secure,
+                same_site,
+            });
+        }
+        
+        Ok(cookies)
+    }
+
+    /// Set cookies via CDP
+    ///
+    /// Sets cookies in the browser context.
+    /// This is Chromium-only (uses CDP).
+    pub async fn set_cookies(&self, cookies: &[crate::core::storage::CookieState]) -> Result<()> {
+        use serde_json::json;
+        
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        for cookie in cookies {
+            let same_site_str = match cookie.same_site {
+                crate::core::storage::SameSite::Strict => "Strict",
+                crate::core::storage::SameSite::Lax => "Lax",
+                crate::core::storage::SameSite::None => "None",
+            };
+            
+            let mut cookie_params = json!({
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "httpOnly": cookie.http_only,
+                "secure": cookie.secure,
+                "sameSite": same_site_str,
+            });
+            
+            // Only include expires if it's not a session cookie (-1)
+            if cookie.expires >= 0.0 {
+                cookie_params["expires"] = json!(cookie.expires);
+            }
+            
+            let params = json!({
+                "cookies": [cookie_params]
+            });
+            
+            dev_tools.execute_cdp_with_params("Network.setCookies", params).await
+                .map_err(|e| Error::ActionFailed(format!("Failed to set cookie '{}': {}", cookie.name, e)))?;
+        }
+        
+        Ok(())
+    }
+
+    /// Get localStorage and sessionStorage for a given origin
+    ///
+    /// Requires an open page at the origin.
+    /// Returns (localStorage, sessionStorage) as vectors of name-value pairs.
+    pub async fn get_storage_for_origin(&self, origin: &str) -> Result<(Vec<crate::core::storage::NameValue>, Vec<crate::core::storage::NameValue>)> {
+        use crate::core::storage::NameValue;
+        
+        // Script to extract localStorage and sessionStorage
+        let script = r#"
+            return {
+                localStorage: Object.keys(localStorage).map(key => ({
+                    name: key,
+                    value: localStorage.getItem(key)
+                })),
+                sessionStorage: Object.keys(sessionStorage).map(key => ({
+                    name: key,
+                    value: sessionStorage.getItem(key)
+                }))
+            };
+        "#;
+        
+        let result = self.execute_script(script).await
+            .map_err(|e| Error::ActionFailed(format!("Failed to get storage for origin '{}': {}", origin, e)))?;
+        
+        let local_storage_json = result.get("localStorage")
+            .ok_or_else(|| Error::ActionFailed("Missing localStorage in response".to_string()))?;
+        let session_storage_json = result.get("sessionStorage")
+            .ok_or_else(|| Error::ActionFailed("Missing sessionStorage in response".to_string()))?;
+        
+        let local_storage: Vec<NameValue> = serde_json::from_value(local_storage_json.clone())
+            .map_err(|e| Error::ActionFailed(format!("Failed to parse localStorage: {}", e)))?;
+        let session_storage: Vec<NameValue> = serde_json::from_value(session_storage_json.clone())
+            .map_err(|e| Error::ActionFailed(format!("Failed to parse sessionStorage: {}", e)))?;
+        
+        Ok((local_storage, session_storage))
+    }
+
+    /// Set localStorage and sessionStorage for the current page
+    ///
+    /// Must be called on a page that is already loaded at the target origin.
+    pub async fn set_storage(&self, local_storage: &[crate::core::storage::NameValue], session_storage: &[crate::core::storage::NameValue]) -> Result<()> {
+        // Set localStorage
+        for item in local_storage {
+            let script = format!(
+                "localStorage.setItem({}, {});",
+                serde_json::to_string(&item.name).unwrap(),
+                serde_json::to_string(&item.value).unwrap()
+            );
+            self.execute_script(&script).await?;
+        }
+        
+        // Set sessionStorage
+        for item in session_storage {
+            let script = format!(
+                "sessionStorage.setItem({}, {});",
+                serde_json::to_string(&item.name).unwrap(),
+                serde_json::to_string(&item.value).unwrap()
+            );
+            self.execute_script(&script).await?;
+        }
+        
+        Ok(())
+    }
 }
 
 impl Drop for WebDriverAdapter {

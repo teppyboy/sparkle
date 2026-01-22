@@ -76,7 +76,21 @@ impl Browser {
             return Err(Error::BrowserClosed);
         }
 
+        // Load storage state if provided
+        let storage_state = if let Some(source) = options.storage_state.clone() {
+            Some(source.load()?)
+        } else {
+            None
+        };
+
         let context = BrowserContext::new(Arc::clone(&self.adapter), options);
+        
+        // Apply storage state if loaded
+        if let Some(state) = storage_state {
+            tracing::debug!("Applying storage state to context");
+            context.apply_storage_state(&state).await?;
+        }
+        
         self.contexts.write().await.push(context.clone());
         
         tracing::info!("Browser context created successfully");
@@ -299,6 +313,166 @@ impl BrowserContext {
         for page in pages.iter() {
             let _ = page.close().await;
         }
+        Ok(())
+    }
+
+    /// Get the current storage state (cookies, localStorage, sessionStorage)
+    ///
+    /// This matches Playwright's storage_state() API.
+    ///
+    /// # Arguments
+    /// * `path` - Optional file path to save the storage state as JSON
+    ///
+    /// # Returns
+    /// The storage state containing cookies and origin storage
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::BrowserContext;
+    /// # async fn example(context: &BrowserContext) -> sparkle::core::Result<()> {
+    /// // Save to file
+    /// let state = context.storage_state(Some("auth.json")).await?;
+    ///
+    /// // Or just get the state without saving
+    /// let state = context.storage_state(None).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn storage_state(&self, path: Option<impl Into<std::path::PathBuf>>) -> Result<crate::core::StorageState> {
+        use crate::core::storage::{OriginState, StorageState};
+        use std::collections::HashMap;
+        
+        tracing::debug!("Getting storage state for context");
+        
+        if self.adapter.is_closed().await {
+            return Err(Error::ContextClosed);
+        }
+
+        // Get all cookies
+        let cookies = self.adapter.get_cookies().await?;
+        tracing::debug!("Retrieved {} cookies", cookies.len());
+
+        // Get storage from all open pages
+        let pages = self.pages.read().await;
+        let mut origins_map: HashMap<String, OriginState> = HashMap::new();
+
+        for page in pages.iter() {
+            if page.is_closed().await {
+                continue;
+            }
+
+            // Get the page's origin
+            let url = match page.url().await {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+
+            // Parse origin from URL
+            let origin = if let Ok(parsed_url) = url::Url::parse(&url) {
+                if let Some(host) = parsed_url.host_str() {
+                    let scheme = parsed_url.scheme();
+                    let port = parsed_url.port()
+                        .map(|p| format!(":{}", p))
+                        .unwrap_or_default();
+                    format!("{}://{}{}", scheme, host, port)
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            // Skip if we already have this origin
+            if origins_map.contains_key(&origin) {
+                continue;
+            }
+
+            // Get storage for this origin
+            match self.adapter.get_storage_for_origin(&origin).await {
+                Ok((local_storage, session_storage)) => {
+                    origins_map.insert(
+                        origin.clone(),
+                        OriginState {
+                            origin,
+                            local_storage,
+                            session_storage,
+                        },
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to get storage for origin '{}': {}", origin, e);
+                }
+            }
+        }
+
+        let origins: Vec<OriginState> = origins_map.into_values().collect();
+        tracing::debug!("Retrieved storage for {} origins", origins.len());
+
+        let state = StorageState { cookies, origins };
+
+        // Save to file if path provided
+        if let Some(p) = path {
+            let path_buf = p.into();
+            state.to_file(&path_buf)?;
+            tracing::info!("Storage state saved to: {}", path_buf.display());
+        }
+
+        Ok(state)
+    }
+
+    /// Apply storage state to the context (internal helper)
+    ///
+    /// Sets cookies and storage from a StorageState object.
+    /// This is called during context creation when storage_state option is provided.
+    pub(crate) async fn apply_storage_state(&self, state: &crate::core::StorageState) -> Result<()> {
+        tracing::debug!("Applying storage state: {} cookies, {} origins", 
+            state.cookies.len(), state.origins.len());
+        
+        if self.adapter.is_closed().await {
+            return Err(Error::ContextClosed);
+        }
+
+        // Set cookies first
+        if !state.cookies.is_empty() {
+            self.adapter.set_cookies(&state.cookies).await?;
+            tracing::debug!("Applied {} cookies", state.cookies.len());
+        }
+
+        // Set storage for each origin
+        for origin_state in &state.origins {
+            if origin_state.local_storage.is_empty() && origin_state.session_storage.is_empty() {
+                continue;
+            }
+
+            tracing::debug!("Setting storage for origin: {}", origin_state.origin);
+
+            // Create a temporary page and navigate to the origin to set storage
+            let page = self.new_page().await?;
+            
+            // Navigate to the origin
+            if let Err(e) = page.goto(&origin_state.origin, Default::default()).await {
+                tracing::warn!("Failed to navigate to origin '{}': {}", origin_state.origin, e);
+                let _ = page.close().await;
+                continue;
+            }
+
+            // Set storage
+            if let Err(e) = self.adapter.set_storage(
+                &origin_state.local_storage,
+                &origin_state.session_storage
+            ).await {
+                tracing::warn!("Failed to set storage for origin '{}': {}", origin_state.origin, e);
+            }
+
+            // Close the temporary page
+            let _ = page.close().await;
+            
+            // Remove from pages list
+            let mut pages = self.pages.write().await;
+            pages.retain(|p| !std::ptr::eq(p as *const _, &page as *const _));
+        }
+
+        tracing::info!("Storage state applied successfully");
         Ok(())
     }
 }
