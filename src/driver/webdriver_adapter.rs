@@ -259,6 +259,8 @@ impl WebDriverAdapter {
 
     /// Switch to a frame by CSS selector
     ///
+    /// This method automatically waits for the iframe to appear before switching.
+    ///
     /// # Arguments
     /// * `frame_selector` - CSS selector to locate the iframe element
     pub async fn switch_to_frame_by_selector(&self, frame_selector: &str) -> Result<()> {
@@ -267,11 +269,25 @@ impl WebDriverAdapter {
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         
-        // First, find the target iframe using native CSS selector (most reliable)
-        let target_frame = driver
-            .find(By::Css(frame_selector))
-            .await
-            .map_err(|_| Error::element_not_found(frame_selector))?;
+        // Wait for the iframe to appear (with retry logic)
+        let timeout = Duration::from_secs(30);
+        let start = std::time::Instant::now();
+        let target_frame = loop {
+            match driver.find(By::Css(frame_selector)).await {
+                Ok(frame) => break frame,
+                Err(_) if start.elapsed() >= timeout => {
+                    return Err(Error::timeout_duration(
+                        &format!("iframe not found: {}", frame_selector),
+                        timeout,
+                    ));
+                }
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        };
+        
+        tracing::debug!("Found iframe with selector: {}", frame_selector);
         
         // Get the element ID for comparison
         let target_id = target_frame.element_id();
