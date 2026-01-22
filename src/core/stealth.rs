@@ -213,6 +213,9 @@ mod tests {
     #[test]
     fn test_minimal_stealth() {
         let script = get_minimal_stealth_script();
-        assert!(script.contains("navigator.webdriver"));
+        // Check that the script contains the webdriver property manipulation
+        assert!(script.contains("Object.defineProperty"));
+        assert!(script.contains("navigator"));
+        assert!(script.contains("'webdriver'"));
     }
 }
