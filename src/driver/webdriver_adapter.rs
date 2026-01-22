@@ -264,39 +264,37 @@ impl WebDriverAdapter {
     pub async fn switch_to_frame_by_selector(&self, frame_selector: &str) -> Result<()> {
         self.apply_slow_mo().await;
         
-        // Find all iframes and locate the index by matching selector
         let guard = self.driver().await?;
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        // First, find the target iframe using native CSS selector (most reliable)
+        let target_frame = driver
+            .find(By::Css(frame_selector))
+            .await
+            .map_err(|_| Error::element_not_found(frame_selector))?;
+        
+        // Get the element ID for comparison
+        let target_id = target_frame.element_id();
+        
+        // Now find all iframes to get the index
         let frames = driver.find_all(By::Tag("iframe")).await?;
         
-        // Find matching frame by selector
+        // Find the index of our target frame
         for (idx, frame_elem) in frames.iter().enumerate() {
-            // Check if this frame matches the selector using JS
-            // Pass selector as argument to avoid quote escaping issues
-            let matches_script = r#"
-                var frame = arguments[0];
-                var selector = arguments[1];
-                try {
-                    return frame.matches(selector);
-                } catch (e) {
-                    return false;
-                }
-            "#;
-            let args = vec![
-                frame_elem.to_json()?,
-                serde_json::Value::String(frame_selector.to_string()),
-            ];
-            let matches = self.execute_script_with_args(&matches_script, args).await?;
-            
-            if matches.as_bool().unwrap_or(false) {
-                // Found the matching frame, switch to it
+            let frame_id = frame_elem.element_id();
+            if frame_id == target_id {
+                // Found it! Switch to this frame by index
                 driver.enter_frame(idx as u16).await?;
-                tracing::debug!("Switched to frame: {}", frame_selector);
+                tracing::debug!("Switched to frame: {} (index: {})", frame_selector, idx);
                 return Ok(());
             }
         }
         
-        Err(Error::element_not_found(frame_selector))
+        // This shouldn't happen, but handle it just in case
+        Err(Error::ActionFailed(format!(
+            "Found frame with selector '{}' but couldn't determine its index",
+            frame_selector
+        )))
     }
 
     /// Switch to a frame by WebElement reference
