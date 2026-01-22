@@ -7,6 +7,7 @@ use crate::async_api::CDPSession;
 use crate::core::{BrowserContextOptions, ClickOptions, Error, Result, TypeOptions};
 use crate::driver::{ChromeDriverProcess, WebDriverAdapter};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 /// Represents a browser instance
@@ -797,6 +798,55 @@ impl Page {
             return Err(Error::PageClosed);
         }
         self.locator(selector).wait_for().await
+    }
+
+    /// Wait for the page to reach a specific load state
+    ///
+    /// Returns when the required load state has been reached. This resolves immediately
+    /// if the load state is already reached.
+    ///
+    /// # Arguments
+    /// * `state` - Optional load state to wait for. Defaults to `Load`.
+    ///   - `Load` - wait for the `load` event (page fully loaded)
+    ///   - `DomContentLoaded` - wait for `DOMContentLoaded` event
+    ///   - `NetworkIdle` - wait until there are no network connections for at least 500ms
+    ///   - `Commit` - wait for navigation to be committed
+    /// * `timeout` - Optional timeout duration. Defaults to 30 seconds.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Page;
+    /// # use sparkle::core::WaitUntilState;
+    /// # use std::time::Duration;
+    /// # async fn example(page: &Page) -> sparkle::core::Result<()> {
+    /// // Wait for full page load
+    /// page.wait_for_load_state(None, None).await?;
+    ///
+    /// // Wait for DOM content loaded
+    /// page.wait_for_load_state(Some(WaitUntilState::DomContentLoaded), None).await?;
+    ///
+    /// // Wait for network idle with custom timeout
+    /// page.wait_for_load_state(
+    ///     Some(WaitUntilState::NetworkIdle),
+    ///     Some(Duration::from_secs(10))
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn wait_for_load_state(
+        &self,
+        state: Option<crate::core::WaitUntilState>,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
+        if *self.closed.read().await {
+            return Err(Error::PageClosed);
+        }
+
+        let load_state = state.unwrap_or(crate::core::WaitUntilState::Load);
+        let timeout_duration = timeout.unwrap_or(Duration::from_secs(30));
+
+        tracing::debug!("Page: waiting for load state {:?}", load_state);
+        self.adapter.wait_for_load_state(load_state, timeout_duration).await
     }
 
     /// Evaluate JavaScript in the page context

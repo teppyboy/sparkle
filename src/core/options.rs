@@ -522,4 +522,33 @@ mod tests {
         assert_eq!(opts.timeout, Some(Duration::from_secs(10)));
         assert!(matches!(opts.wait_until, Some(WaitUntilState::NetworkIdle)));
     }
+
+    #[test]
+    fn test_wait_until_state_variants() {
+        // Test all variants exist and can be created
+        let load = WaitUntilState::Load;
+        let dom = WaitUntilState::DomContentLoaded;
+        let network = WaitUntilState::NetworkIdle;
+        let commit = WaitUntilState::Commit;
+
+        assert!(matches!(load, WaitUntilState::Load));
+        assert!(matches!(dom, WaitUntilState::DomContentLoaded));
+        assert!(matches!(network, WaitUntilState::NetworkIdle));
+        assert!(matches!(commit, WaitUntilState::Commit));
+    }
+
+    #[test]
+    fn test_wait_until_state_default() {
+        // Test default is Load
+        let default_state = WaitUntilState::default();
+        assert!(matches!(default_state, WaitUntilState::Load));
+    }
+
+    #[test]
+    fn test_wait_until_state_clone() {
+        // Test that WaitUntilState is Clone
+        let state = WaitUntilState::NetworkIdle;
+        let cloned = state.clone();
+        assert!(matches!(cloned, WaitUntilState::NetworkIdle));
+    }
 }

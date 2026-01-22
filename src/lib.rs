@@ -51,6 +51,7 @@ pub mod prelude {
         CookieState, Error, LaunchOptions, LaunchOptionsBuilder, NameValue, NavigationOptions, 
         NavigationOptionsBuilder, OriginState, ProxySettings, Result, SameSite, ScreenshotOptions, 
         ScreenshotOptionsBuilder, StorageState, StorageStateSource, TypeOptions, TypeOptionsBuilder,
+        WaitUntilState,
     };
 }
 

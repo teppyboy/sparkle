@@ -128,6 +128,99 @@ impl WebDriverAdapter {
         Ok(())
     }
 
+    /// Wait for the page to reach a specific load state
+    ///
+    /// # Arguments
+    /// * `state` - The load state to wait for (Load, DomContentLoaded, NetworkIdle)
+    /// * `timeout` - Maximum time to wait
+    ///
+    /// # Returns
+    /// Ok(()) if the state is reached, Err if timeout or other error occurs
+    pub async fn wait_for_load_state(&self, state: crate::core::WaitUntilState, timeout: Duration) -> Result<()> {
+        use crate::core::WaitUntilState;
+        
+        tracing::debug!("Waiting for load state: {:?}", state);
+        let start = std::time::Instant::now();
+        
+        match state {
+            WaitUntilState::Load => {
+                // Wait for document.readyState === 'complete'
+                loop {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::timeout_duration("wait for load state: load", timeout));
+                    }
+                    
+                    let ready_state = self.execute_script("return document.readyState").await?;
+                    if ready_state.as_str() == Some("complete") {
+                        tracing::debug!("Load state 'load' reached");
+                        return Ok(());
+                    }
+                    
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            WaitUntilState::DomContentLoaded => {
+                // Wait for document.readyState === 'interactive' or 'complete'
+                loop {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::timeout_duration("wait for load state: domcontentloaded", timeout));
+                    }
+                    
+                    let ready_state = self.execute_script("return document.readyState").await?;
+                    let state_str = ready_state.as_str();
+                    if state_str == Some("interactive") || state_str == Some("complete") {
+                        tracing::debug!("Load state 'domcontentloaded' reached");
+                        return Ok(());
+                    }
+                    
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            WaitUntilState::NetworkIdle => {
+                // Wait for no network activity for at least 500ms
+                // This is a simplified implementation - full Playwright uses CDP
+                // For now, just wait for load state and add 500ms
+                loop {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::timeout_duration("wait for load state: networkidle", timeout));
+                    }
+                    
+                    let ready_state = self.execute_script("return document.readyState").await?;
+                    if ready_state.as_str() == Some("complete") {
+                        // Wait additional 500ms for network to settle
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        
+                        // Verify still complete after wait
+                        let ready_state = self.execute_script("return document.readyState").await?;
+                        if ready_state.as_str() == Some("complete") {
+                            tracing::debug!("Load state 'networkidle' reached");
+                            return Ok(());
+                        }
+                    }
+                    
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            WaitUntilState::Commit => {
+                // Commit state is reached when navigation is committed
+                // For WebDriver, we consider this equivalent to DomContentLoaded
+                loop {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::timeout_duration("wait for load state: commit", timeout));
+                    }
+                    
+                    let ready_state = self.execute_script("return document.readyState").await?;
+                    if ready_state.as_str() != Some("loading") {
+                        tracing::debug!("Load state 'commit' reached");
+                        return Ok(());
+                    }
+                    
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
     /// Get the current URL
     pub async fn current_url(&self) -> Result<String> {
         let guard = self.driver().await?;
