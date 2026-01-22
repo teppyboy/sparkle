@@ -2,7 +2,7 @@
 //!
 //! This module implements the Browser class which represents a browser instance.
 
-use crate::async_api::Locator;
+use crate::async_api::{Locator, FrameLocator};
 use crate::async_api::CDPSession;
 use crate::core::{BrowserContextOptions, ClickOptions, Error, Result, TypeOptions};
 use crate::driver::{ChromeDriverProcess, WebDriverAdapter};
@@ -692,6 +692,27 @@ impl Page {
     /// ```
     pub fn locator(&self, selector: &str) -> Locator {
         Locator::new(Arc::clone(&self.adapter), selector)
+    }
+
+    /// Create a frame locator for an iframe
+    ///
+    /// Returns a FrameLocator that represents a view into an iframe element.
+    /// Use this to interact with elements inside iframes.
+    ///
+    /// # Arguments
+    /// * `selector` - CSS selector to locate the iframe element
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Page;
+    /// # async fn example(page: &Page) -> sparkle::core::Result<()> {
+    /// let frame = page.frame_locator("iframe#my-frame");
+    /// frame.locator("button#submit").click(Default::default()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn frame_locator(&self, selector: &str) -> FrameLocator {
+        FrameLocator::new(Arc::clone(&self.adapter), selector)
     }
 
     /// Click an element matching the selector

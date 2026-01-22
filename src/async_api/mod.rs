@@ -7,6 +7,7 @@ pub mod browser;
 pub mod browser_type;
 pub mod cdp_session;
 pub mod element_handle;
+pub mod frame_locator;
 pub mod locator;
 pub mod playwright;
 
@@ -15,5 +16,6 @@ pub use browser::{Browser, BrowserContext, Page};
 pub use browser_type::{BrowserName, BrowserType};
 pub use cdp_session::CDPSession;
 pub use element_handle::ElementHandle;
+pub use frame_locator::{FrameLocator, ElementInFrame};
 pub use locator::Locator;
 pub use playwright::Playwright;

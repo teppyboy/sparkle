@@ -257,6 +257,106 @@ impl WebDriverAdapter {
         Ok(elements)
     }
 
+    /// Switch to a frame by CSS selector
+    ///
+    /// # Arguments
+    /// * `frame_selector` - CSS selector to locate the iframe element
+    pub async fn switch_to_frame_by_selector(&self, frame_selector: &str) -> Result<()> {
+        self.apply_slow_mo().await;
+        // Use JavaScript to validate frame exists
+        let script = format!(
+            r#"
+            var frame = document.querySelector('{}');
+            if (!frame) throw new Error('Frame not found: {}');
+            return true;
+            "#,
+            frame_selector, frame_selector
+        );
+        let _result = self.execute_script(&script).await?;
+        
+        // Now we need to find the frame index to use enter_frame
+        // For now, let's use a workaround: find all iframes and match by selector
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let frames = driver.find_all(By::Tag("iframe")).await?;
+        
+        // Find matching frame by selector
+        for (idx, frame_elem) in frames.iter().enumerate() {
+            // Check if this frame matches the selector using JS
+            let matches_script = format!(
+                r#"
+                var frame = arguments[0];
+                var selector = '{}';
+                return frame.matches(selector);
+                "#,
+                frame_selector
+            );
+            let args = vec![frame_elem.to_json()?];
+            let matches = self.execute_script_with_args(&matches_script, args).await?;
+            
+            if matches.as_bool().unwrap_or(false) {
+                // Found the matching frame, switch to it
+                driver.enter_frame(idx as u16).await?;
+                tracing::debug!("Switched to frame: {}", frame_selector);
+                return Ok(());
+            }
+        }
+        
+        Err(Error::element_not_found(frame_selector))
+    }
+
+    /// Switch to a frame by WebElement reference
+    ///
+    /// # Arguments
+    /// * `frame_element` - The iframe element to switch to (must be obtained in parent context)
+    pub async fn switch_to_frame(&self, frame_element: &WebElement) -> Result<()> {
+        self.apply_slow_mo().await;
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        
+        // Find all iframes and locate the index of our element
+        let frames = driver.find_all(By::Tag("iframe")).await?;
+        
+        for (idx, frame_elem) in frames.iter().enumerate() {
+            // Compare element IDs or use JavaScript to check equality
+            let script = r#"return arguments[0] === arguments[1];"#;
+            let args = vec![frame_element.to_json()?, frame_elem.to_json()?];
+            let is_same = self.execute_script_with_args(script, args).await?;
+            
+            if is_same.as_bool().unwrap_or(false) {
+                driver.enter_frame(idx as u16).await?;
+                tracing::debug!("Switched to frame");
+                return Ok(());
+            }
+        }
+        
+        Err(Error::ActionFailed("Frame element not found in page".to_string()))
+    }
+
+    /// Switch to the default content (main page context)
+    ///
+    /// This exits all iframe contexts and returns to the top-level page.
+    pub async fn switch_to_default_content(&self) -> Result<()> {
+        self.apply_slow_mo().await;
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        driver.enter_default_frame().await?;
+        tracing::debug!("Switched to default content");
+        Ok(())
+    }
+
+    /// Switch to parent frame
+    ///
+    /// This switches from the current frame to its parent frame.
+    pub async fn switch_to_parent_frame(&self) -> Result<()> {
+        self.apply_slow_mo().await;
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        driver.enter_parent_frame().await?;
+        tracing::debug!("Switched to parent frame");
+        Ok(())
+    }
+
     /// Execute JavaScript in the browser context
     pub async fn execute_script(&self, script: &str) -> Result<serde_json::Value> {
         self.apply_slow_mo().await;

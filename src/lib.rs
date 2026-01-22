@@ -33,7 +33,7 @@ pub mod core;
 pub mod driver;
 
 // Re-export commonly used types for convenience
-pub use async_api::{Browser, BrowserContext, BrowserType, ElementHandle, Locator, Page, Playwright};
+pub use async_api::{Browser, BrowserContext, BrowserType, ElementHandle, ElementInFrame, FrameLocator, Locator, Page, Playwright};
 pub use core::{init_logging, init_logging_with_level, Error, Result};
 
 /// Prelude module for convenient imports
@@ -43,7 +43,7 @@ pub use core::{init_logging, init_logging_with_level, Error, Result};
 /// use sparkle::prelude::*;
 /// ```
 pub mod prelude {
-    pub use crate::async_api::{Browser, BrowserContext, BrowserType, ElementHandle, Locator, Page, Playwright};
+    pub use crate::async_api::{Browser, BrowserContext, BrowserType, ElementHandle, ElementInFrame, FrameLocator, Locator, Page, Playwright};
     pub use crate::core::{
         init_logging, init_logging_with_level,
         BrowserContextOptions, BrowserContextOptionsBuilder, ClickOptions, ClickOptionsBuilder,
