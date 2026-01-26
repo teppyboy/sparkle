@@ -942,16 +942,20 @@ impl Page {
         if *self.closed.read().await {
             return Err(Error::PageClosed);
         }
-        let html = self
-            .evaluate("document.documentElement.outerHTML")
-            .await?;
-        
-        // Extract string from JSON value
-        if let serde_json::Value::String(s) = html {
-            Ok(s)
-        } else {
-            Ok(html.to_string())
+        match self.adapter.page_source().await {
+            Ok(source) => return Ok(source),
+            Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+            Err(error) => {
+                tracing::debug!("WebDriver page source failed, falling back to JS: {}", error);
+            }
         }
+
+        let html = self.evaluate("document.documentElement.outerHTML").await?;
+        if let serde_json::Value::String(s) = html {
+            return Ok(s);
+        }
+
+        Ok(html.to_string())
     }
 }
 

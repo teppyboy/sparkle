@@ -128,6 +128,15 @@ Sparkle is built on three main layers:
 - **`core/`** - Types, errors, options builders  
 - **`driver/`** - WebDriver adapter (wraps thirtyfour)
 
+## Developing
+
+This project uses OpenSkills, so before working on the project, install the needed skills:
+
+```bash
+bunx --bun openskills install ZhangHanDong/rust-skills
+bunx --bun openskills install lackeyjb/playwright-skill 
+```
+
 ## Project Status
 
 This project is in very early stage, do NOT expect anything to work yet.

@@ -471,3 +471,264 @@ cargo run --example wikipedia_search --release
 # Test library functionality
 cargo test
 ```
+
+<skills_system priority="1">
+
+## Available Skills
+
+<!-- SKILLS_TABLE_START -->
+<usage>
+When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+How to use skills:
+- Invoke: `bunx --bun openskills read <skill-name>` (run in your shell)
+  - For multiple: `bunx --bun openskills read skill-one,skill-two`
+- The skill content will load with detailed instructions on how to complete the task
+- Base directory provided in output for resolving bundled resources (references/, scripts/, assets/)
+
+Usage notes:
+- Only use skills listed in <available_skills> below
+- Do not invoke a skill that is already loaded in your context
+- Each skill invocation is stateless
+</usage>
+
+<available_skills>
+
+<skill>
+<name>coding-guidelines</name>
+<description>"Use when asking about Rust code style or best practices. Keywords: naming, formatting, comment, clippy, rustfmt, lint, code style, best practice, P.NAM, G.FMT, code review, naming convention, variable naming, function naming, type naming, 命名规范, 代码风格, 格式化, 最佳实践, 代码审查, 怎么命名"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>core-actionbook</name>
+<description></description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>core-agent-browser</name>
+<description></description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>core-dynamic-skills</name>
+<description></description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>core-fix-skill-docs</name>
+<description></description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-cli</name>
+<description>"Use when building CLI tools. Keywords: CLI, command line, terminal, clap, structopt, argument parsing, subcommand, interactive, TUI, ratatui, crossterm, indicatif, progress bar, colored output, shell completion, config file, environment variable, 命令行, 终端应用, 参数解析"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-cloud-native</name>
+<description>"Use when building cloud-native apps. Keywords: kubernetes, k8s, docker, container, grpc, tonic, microservice, service mesh, observability, tracing, metrics, health check, cloud, deployment, 云原生, 微服务, 容器"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-embedded</name>
+<description>"Use when developing embedded/no_std Rust. Keywords: embedded, no_std, microcontroller, MCU, ARM, RISC-V, bare metal, firmware, HAL, PAC, RTIC, embassy, interrupt, DMA, peripheral, GPIO, SPI, I2C, UART, embedded-hal, cortex-m, esp32, stm32, nrf, 嵌入式, 单片机, 固件, 裸机"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-fintech</name>
+<description>"Use when building fintech apps. Keywords: fintech, trading, decimal, currency, financial, money, transaction, ledger, payment, exchange rate, precision, rounding, accounting, 金融, 交易系统, 货币, 支付"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-iot</name>
+<description>"Use when building IoT apps. Keywords: IoT, Internet of Things, sensor, MQTT, device, edge computing, telemetry, actuator, smart home, gateway, protocol, 物联网, 传感器, 边缘计算, 智能家居"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-ml</name>
+<description>"Use when building ML/AI apps in Rust. Keywords: machine learning, ML, AI, tensor, model, inference, neural network, deep learning, training, prediction, ndarray, tch-rs, burn, candle, 机器学习, 人工智能, 模型推理"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>domain-web</name>
+<description>"Use when building web services. Keywords: web server, HTTP, REST API, GraphQL, WebSocket, axum, actix, warp, rocket, tower, hyper, reqwest, middleware, router, handler, extractor, state management, authentication, authorization, JWT, session, cookie, CORS, rate limiting, web 开发, HTTP 服务, API 设计, 中间件, 路由"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m01-ownership</name>
+<description>"CRITICAL: Use for ownership/borrow/lifetime issues. Triggers: E0382, E0597, E0506, E0507, E0515, E0716, E0106, value moved, borrowed value does not live long enough, cannot move out of, use of moved value, ownership, borrow, lifetime, 'a, 'static, move, clone, Copy, 所有权, 借用, 生命周期"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m02-resource</name>
+<description>"CRITICAL: Use for smart pointers and resource management. Triggers: Box, Rc, Arc, Weak, RefCell, Cell, smart pointer, heap allocation, reference counting, RAII, Drop, should I use Box or Rc, when to use Arc vs Rc, 智能指针, 引用计数, 堆分配"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m03-mutability</name>
+<description>"CRITICAL: Use for mutability issues. Triggers: E0596, E0499, E0502, cannot borrow as mutable, already borrowed as immutable, mut, &mut, interior mutability, Cell, RefCell, Mutex, RwLock, 可变性, 内部可变性, 借用冲突"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m04-zero-cost</name>
+<description>"CRITICAL: Use for generics, traits, zero-cost abstraction. Triggers: E0277, E0308, E0599, generic, trait, impl, dyn, where, monomorphization, static dispatch, dynamic dispatch, impl Trait, trait bound not satisfied, 泛型, 特征, 零成本抽象, 单态化"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m05-type-driven</name>
+<description>"CRITICAL: Use for type-driven design. Triggers: type state, PhantomData, newtype, marker trait, builder pattern, make invalid states unrepresentable, compile-time validation, sealed trait, ZST, 类型状态, 新类型模式, 类型驱动设计"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m06-error-handling</name>
+<description>"CRITICAL: Use for error handling. Triggers: Result, Option, Error, ?, unwrap, expect, panic, anyhow, thiserror, when to panic vs return Result, custom error, error propagation, 错误处理, Result 用法, 什么时候用 panic"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m07-concurrency</name>
+<description>"CRITICAL: Use for concurrency/async. Triggers: E0277 Send Sync, cannot be sent between threads, thread, spawn, channel, mpsc, Mutex, RwLock, Atomic, async, await, Future, tokio, deadlock, race condition, 并发, 线程, 异步, 死锁"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m09-domain</name>
+<description>"CRITICAL: Use for domain modeling. Triggers: domain model, DDD, domain-driven design, entity, value object, aggregate, repository pattern, business rules, validation, invariant, 领域模型, 领域驱动设计, 业务规则"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m10-performance</name>
+<description>"CRITICAL: Use for performance optimization. Triggers: performance, optimization, benchmark, profiling, flamegraph, criterion, slow, fast, allocation, cache, SIMD, make it faster, 性能优化, 基准测试"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m11-ecosystem</name>
+<description>"Use when integrating crates or ecosystem questions. Keywords: E0425, E0433, E0603, crate, cargo, dependency, feature flag, workspace, which crate to use, using external C libraries, creating Python extensions, PyO3, wasm, WebAssembly, bindgen, cbindgen, napi-rs, cannot find, private, crate recommendation, best crate for, Cargo.toml, features, crate 推荐, 依赖管理, 特性标志, 工作空间, Python 绑定"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m12-lifecycle</name>
+<description>"Use when designing resource lifecycles. Keywords: RAII, Drop, resource lifecycle, connection pool, lazy initialization, connection pool design, resource cleanup patterns, cleanup, scope, OnceCell, Lazy, once_cell, OnceLock, transaction, session management, when is Drop called, cleanup on error, guard pattern, scope guard, 资源生命周期, 连接池, 惰性初始化, 资源清理, RAII 模式"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m13-domain-error</name>
+<description>"Use when designing domain error handling. Keywords: domain error, error categorization, recovery strategy, retry, fallback, domain error hierarchy, user-facing vs internal errors, error code design, circuit breaker, graceful degradation, resilience, error context, backoff, retry with backoff, error recovery, transient vs permanent error, 领域错误, 错误分类, 恢复策略, 重试, 熔断器, 优雅降级"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m14-mental-model</name>
+<description>"Use when learning Rust concepts. Keywords: mental model, how to think about ownership, understanding borrow checker, visualizing memory layout, analogy, misconception, explaining ownership, why does Rust, help me understand, confused about, learning Rust, explain like I'm, ELI5, intuition for, coming from Java, coming from Python, 心智模型, 如何理解所有权, 学习 Rust, Rust 入门, 为什么 Rust"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>m15-anti-pattern</name>
+<description>"Use when reviewing code for anti-patterns. Keywords: anti-pattern, common mistake, pitfall, code smell, bad practice, code review, is this an anti-pattern, better way to do this, common mistake to avoid, why is this bad, idiomatic way, beginner mistake, fighting borrow checker, clone everywhere, unwrap in production, should I refactor, 反模式, 常见错误, 代码异味, 最佳实践, 地道写法"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>meta-cognition-parallel</name>
+<description>"EXPERIMENTAL: Three-layer parallel meta-cognition analysis. Triggers on: /meta-parallel, 三层分析, parallel analysis, 并行元认知"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>playwright-skill</name>
+<description>Complete browser automation with Playwright. Auto-detects dev servers, writes clean test scripts to /tmp. Test pages, fill forms, take screenshots, check responsive design, validate UX, test login flows, check links, automate any browser task. Use when user wants to test websites, automate browser interactions, validate web functionality, or perform any browser-based testing.</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-call-graph</name>
+<description>"Visualize Rust function call graphs using LSP. Triggers on: /call-graph, call hierarchy, who calls, what calls, 调用图, 调用关系, 谁调用了, 调用了谁"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-code-navigator</name>
+<description>"Navigate Rust code using LSP. Triggers on: /navigate, go to definition, find references, where is defined, 跳转定义, 查找引用, 定义在哪, 谁用了这个"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-daily</name>
+<description>|</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-deps-visualizer</name>
+<description>"Visualize Rust project dependencies as ASCII art. Triggers on: /deps-viz, dependency graph, show dependencies, visualize deps, 依赖图, 依赖可视化, 显示依赖"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-learner</name>
+<description>"Use when asking about Rust versions or crate info. Keywords: latest version, what's new, changelog, Rust 1.x, Rust release, stable, nightly, crate info, crates.io, lib.rs, docs.rs, API documentation, crate features, dependencies, which crate, what version, Rust edition, edition 2021, edition 2024, cargo add, cargo update, 最新版本, 版本号, 稳定版, 最新, 哪个版本, crate 信息, 文档, 依赖, Rust 版本, 新特性, 有什么特性"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-refactor-helper</name>
+<description>"Safe Rust refactoring with LSP analysis. Triggers on: /refactor, rename symbol, move function, extract, 重构, 重命名, 提取函数, 安全重构"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-router</name>
+<description>"CRITICAL: Use for ALL Rust questions including errors, design, and coding.</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-skill-creator</name>
+<description>"Use when creating skills for Rust crates or std library documentation. Keywords: create rust skill, create crate skill, create std skill, 创建 rust skill, 创建 crate skill, 创建 std skill, 动态 rust skill, 动态 crate skill, skill for tokio, skill for serde, skill for axum, generate rust skill, rust 技能, crate 技能, 从文档创建skill, from docs create skill"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-symbol-analyzer</name>
+<description>"Analyze Rust project structure using LSP symbols. Triggers on: /symbols, project structure, list structs, list traits, list functions, 符号分析, 项目结构, 列出所有, 有哪些struct"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>rust-trait-explorer</name>
+<description>"Explore Rust trait implementations using LSP. Triggers on: /trait-impl, find implementations, who implements, trait 实现, 谁实现了, 实现了哪些trait"</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>unsafe-checker</name>
+<description>"CRITICAL: Use for unsafe Rust code review and FFI. Triggers on: unsafe, raw pointer, FFI, extern, transmute, *mut, *const, union, #[repr(C)], libc, std::ffi, MaybeUninit, NonNull, SAFETY comment, soundness, undefined behavior, UB, safe wrapper, memory layout, bindgen, cbindgen, CString, CStr, 安全抽象, 裸指针, 外部函数接口, 内存布局, 不安全代码, FFI 绑定, 未定义行为"</description>
+<location>project</location>
+</skill>
+
+</available_skills>
+<!-- SKILLS_TABLE_END -->
+
+</skills_system>

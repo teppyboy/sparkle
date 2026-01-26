@@ -3,15 +3,20 @@
 //! This module provides realistic mouse movement and clicking behavior
 //! to avoid detection by anti-bot systems.
 
-use crate::core::Result;
-use crate::driver::WebDriverAdapter;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+
+use serde_json::json;
 use thirtyfour::prelude::*;
+use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
+
+use crate::core::{Error, Result};
+use crate::driver::WebDriverAdapter;
 
 /// Mouse emulation for human-like interactions
 pub struct Mouse {
     adapter: Arc<WebDriverAdapter>,
+    position: Arc<RwLock<(i64, i64)>>,
 }
 
 /// Options for mouse movement
@@ -65,7 +70,10 @@ impl Default for MouseClickOptions {
 impl Mouse {
     /// Create a new Mouse instance
     pub(crate) fn new(adapter: Arc<WebDriverAdapter>) -> Self {
-        Self { adapter }
+        Self {
+            adapter,
+            position: Arc::new(RwLock::new((0, 0))),
+        }
     }
 
     /// Move mouse to specific coordinates with human-like motion
@@ -233,6 +241,43 @@ impl Mouse {
 
     /// Low-level mouse move to coordinates
     async fn move_mouse_to_coord(&self, x: i64, y: i64) -> Result<()> {
+        {
+            let guard = self.adapter.driver().await?;
+            let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+            match driver.action_chain().move_to(x, y).perform().await {
+                Ok(()) => {
+                    *self.position.write().await = (x, y);
+                    return Ok(());
+                }
+                Err(error) => {
+                    tracing::debug!("WebDriver mouse move failed, falling back to JS: {}", error);
+                }
+            }
+        }
+
+        match self
+            .adapter
+            .execute_cdp_with_params(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": "mouseMoved",
+                    "x": x,
+                    "y": y,
+                    "button": "none",
+                    "buttons": 0
+                }),
+            )
+            .await
+        {
+            Ok(_) => {
+                *self.position.write().await = (x, y);
+                return Ok(());
+            }
+            Err(error) => {
+                tracing::debug!("CDP mouse move failed, falling back to JS: {}", error);
+            }
+        }
+
         let script = format!(
             r#"
             const event = new MouseEvent('mousemove', {{
@@ -247,11 +292,45 @@ impl Mouse {
             x, y
         );
         self.adapter.execute_script(&script).await?;
+        *self.position.write().await = (x, y);
         Ok(())
     }
 
     /// Low-level mousedown
     async fn mouse_down(&self) -> Result<()> {
+        {
+            let guard = self.adapter.driver().await?;
+            let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+            match driver.action_chain().click_and_hold().perform().await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    tracing::debug!("WebDriver mouse down failed, falling back to JS: {}", error);
+                }
+            }
+        }
+
+        let (x, y) = *self.position.read().await;
+        match self
+            .adapter
+            .execute_cdp_with_params(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": "mousePressed",
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "buttons": 1,
+                    "clickCount": 1
+                }),
+            )
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                tracing::debug!("CDP mouse down failed, falling back to JS: {}", error);
+            }
+        }
+
         let script = r#"
             const event = new MouseEvent('mousedown', {
                 view: window,
@@ -267,6 +346,39 @@ impl Mouse {
 
     /// Low-level mouseup
     async fn mouse_up(&self) -> Result<()> {
+        {
+            let guard = self.adapter.driver().await?;
+            let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+            match driver.action_chain().release().perform().await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    tracing::debug!("WebDriver mouse up failed, falling back to JS: {}", error);
+                }
+            }
+        }
+
+        let (x, y) = *self.position.read().await;
+        match self
+            .adapter
+            .execute_cdp_with_params(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": "mouseReleased",
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "buttons": 0,
+                    "clickCount": 1
+                }),
+            )
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                tracing::debug!("CDP mouse up failed, falling back to JS: {}", error);
+            }
+        }
+
         let script = r#"
             const event = new MouseEvent('mouseup', {
                 view: window,

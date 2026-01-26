@@ -3,12 +3,24 @@
 //! This module provides an abstraction over thirtyfour to adapt it to Playwright's
 //! semantics and API patterns.
 
-use crate::core::{Error, Result};
+use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::{SinkExt, StreamExt};
+use http::Method;
+use reqwest::Client;
+use serde_json::Value;
+use thirtyfour::common::command::{Command, ExtensionCommand};
 use thirtyfour::extensions::cdp::ChromeDevTools;
 use thirtyfour::prelude::*;
 use tokio::sync::RwLock;
+use tokio::time::{Instant, Sleep};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use url::Url;
+
+use crate::core::{Error, Result};
 
 /// Adapter wrapping the thirtyfour WebDriver
 ///
@@ -18,6 +30,33 @@ pub struct WebDriverAdapter {
     driver: Arc<RwLock<Option<WebDriver>>>,
     slow_mo: Option<Duration>,
     cdp: Arc<RwLock<Option<ChromeDevTools>>>,
+    requested_capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+    session_capabilities: Arc<RwLock<Option<serde_json::Value>>>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct LoadStateSnapshot {
+    domcontentloaded: bool,
+    load: bool,
+    network_idle: bool,
+    commit: bool,
+}
+
+#[derive(Debug)]
+struct GetSessionCommand;
+
+impl ExtensionCommand for GetSessionCommand {
+    fn parameters_json(&self) -> Option<Value> {
+        None
+    }
+
+    fn method(&self) -> Method {
+        Method::GET
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        Arc::from("")
+    }
 }
 
 impl WebDriverAdapter {
@@ -28,6 +67,8 @@ impl WebDriverAdapter {
             driver: Arc::new(RwLock::new(Some(driver))),
             slow_mo: None,
             cdp: Arc::new(RwLock::new(Some(cdp))),
+            requested_capabilities: None,
+            session_capabilities: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -38,6 +79,8 @@ impl WebDriverAdapter {
             driver: Arc::new(RwLock::new(Some(driver))),
             slow_mo,
             cdp: Arc::new(RwLock::new(Some(cdp))),
+            requested_capabilities: None,
+            session_capabilities: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -63,13 +106,20 @@ impl WebDriverAdapter {
         tracing::trace!("Capabilities: {:?}", capabilities);
         
         // Convert HashMap to serde_json::Map
-        let caps_map: serde_json::Map<String, serde_json::Value> = 
+        let caps_map: serde_json::Map<String, serde_json::Value> =
             capabilities.into_iter().collect();
-        let caps: Capabilities = caps_map.into();
+        let caps: Capabilities = caps_map.clone().into();
         let driver = WebDriver::new(url, caps).await?;
+        let cdp = ChromeDevTools::new(driver.handle.clone());
         
         tracing::info!("WebDriver connection established");
-        Ok(Self::new_with_slow_mo(driver, slow_mo))
+        Ok(Self {
+            driver: Arc::new(RwLock::new(Some(driver))),
+            slow_mo,
+            cdp: Arc::new(RwLock::new(Some(cdp))),
+            requested_capabilities: Some(caps_map),
+            session_capabilities: Arc::new(RwLock::new(None)),
+        })
     }
 
     /// Get a reference to the underlying WebDriver
@@ -118,6 +168,383 @@ impl WebDriverAdapter {
         f(driver).await
     }
 
+    async fn session_capabilities(&self) -> Result<Option<serde_json::Value>> {
+        let mut guard = self.session_capabilities.write().await;
+        if let Some(cached) = guard.as_ref() {
+            return Ok(Some(cached.clone()));
+        }
+
+        let driver_guard = self.driver().await?;
+        let driver = driver_guard.as_ref().ok_or(Error::BrowserClosed)?;
+
+        let response = match driver
+            .handle
+            .cmd(Command::ExtensionCommand(Box::new(GetSessionCommand)))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::debug!("GetSession not available via WebDriver: {}", error);
+                return Ok(None);
+            }
+        };
+
+        let value: serde_json::Value = match response.value() {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::debug!("Failed to parse session response: {}", error);
+                return Ok(None);
+            }
+        };
+
+        let capabilities = value
+            .get("capabilities")
+            .cloned()
+            .or_else(|| value.get("capability").cloned());
+
+        if let Some(capabilities) = capabilities.clone() {
+            *guard = Some(capabilities.clone());
+            return Ok(Some(capabilities));
+        }
+
+        *guard = Some(serde_json::Value::Null);
+        Ok(None)
+    }
+
+    fn extract_browser_version(capabilities: &serde_json::Value) -> Option<String> {
+        capabilities
+            .get("browserVersion")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                capabilities
+                    .get("browser_version")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+    }
+
+    fn origin_from_url(url: &Url) -> Option<String> {
+        let host = url.host_str()?;
+        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        Some(format!("{}://{}{}", url.scheme(), host, port))
+    }
+
+    fn debugger_address_from_capabilities(capabilities: &Value) -> Option<String> {
+        capabilities
+            .get("goog:chromeOptions")
+            .and_then(|value| value.get("debuggerAddress"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                capabilities
+                    .get("ms:edgeOptions")
+                    .and_then(|value| value.get("debuggerAddress"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+    }
+
+    fn load_state_reached(state: crate::core::WaitUntilState, snapshot: &LoadStateSnapshot) -> bool {
+        use crate::core::WaitUntilState;
+
+        match state {
+            WaitUntilState::Load => snapshot.load,
+            WaitUntilState::DomContentLoaded => snapshot.domcontentloaded || snapshot.load,
+            WaitUntilState::NetworkIdle => snapshot.network_idle,
+            WaitUntilState::Commit => snapshot.commit || snapshot.domcontentloaded || snapshot.load,
+        }
+    }
+
+    async fn cdp_websocket_url_for_current_page(&self) -> Result<Option<String>> {
+        let capabilities = match self.session_capabilities().await? {
+            Some(capabilities) => capabilities,
+            None => return Ok(None),
+        };
+
+        let debugger_address = match Self::debugger_address_from_capabilities(&capabilities) {
+            Some(address) => address,
+            None => return Ok(None),
+        };
+
+        let current_url = self.current_url().await?;
+        let list_url = format!("http://{}/json/list", debugger_address);
+        let client = Client::new();
+
+        let response = match client.get(&list_url).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::debug!("Failed to query CDP targets: {}", error);
+                return Ok(None);
+            }
+        };
+
+        let targets: Value = match response.json().await {
+            Ok(targets) => targets,
+            Err(error) => {
+                tracing::debug!("Failed to parse CDP targets: {}", error);
+                return Ok(None);
+            }
+        };
+
+        let targets = match targets.as_array() {
+            Some(targets) => targets,
+            None => return Ok(None),
+        };
+
+        let mut fallback: Option<&Value> = None;
+        for target in targets {
+            let target_type = target.get("type").and_then(|value| value.as_str());
+            if target_type != Some("page") {
+                continue;
+            }
+
+            if fallback.is_none() {
+                fallback = Some(target);
+            }
+
+            let target_url = target.get("url").and_then(|value| value.as_str());
+            if target_url == Some(current_url.as_str()) {
+                fallback = Some(target);
+                break;
+            }
+        }
+
+        let target = match fallback {
+            Some(target) => target,
+            None => return Ok(None),
+        };
+
+        let ws_url = target
+            .get("webSocketDebuggerUrl")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+
+        Ok(ws_url)
+    }
+
+    async fn wait_for_load_state_via_cdp(
+        &self,
+        state: crate::core::WaitUntilState,
+        timeout: Duration,
+    ) -> Result<Option<()>> {
+        let ws_url = match self.cdp_websocket_url_for_current_page().await? {
+            Some(url) => url,
+            None => return Ok(None),
+        };
+
+        let (mut ws_stream, _) = match connect_async(&ws_url).await {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::debug!("Failed to connect to CDP websocket: {}", error);
+                return Ok(None);
+            }
+        };
+
+        let mut next_id = 1u64;
+
+        for (method, params) in [
+            ("Page.enable", serde_json::json!({})),
+            ("Network.enable", serde_json::json!({})),
+            (
+                "Page.setLifecycleEventsEnabled",
+                serde_json::json!({"enabled": true}),
+            ),
+        ] {
+            let id = next_id;
+            next_id += 1;
+            let message = serde_json::json!({
+                "id": id,
+                "method": method,
+                "params": params,
+            });
+            let text = serde_json::to_string(&message)
+                .map_err(|e| Error::Serialization(e))?;
+            ws_stream
+                .send(Message::Text(text.into()))
+                .await
+                .map_err(|e| Error::ActionFailed(format!("Failed to send CDP command: {}", e)))?;
+        }
+
+        let mut snapshot = LoadStateSnapshot::default();
+        let mut inflight: HashSet<String> = HashSet::new();
+        let mut idle_timer: Option<Pin<Box<Sleep>>> = None;
+
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            if Self::load_state_reached(state, &snapshot) {
+                return Ok(Some(()));
+            }
+
+            let sleep_until = tokio::time::sleep_until(deadline);
+            tokio::pin!(sleep_until);
+
+            if let Some(mut idle_sleep) = idle_timer.take() {
+                tokio::select! {
+                    _ = &mut sleep_until => {
+                        return Err(Error::timeout_duration("wait for load state via CDP", timeout));
+                    }
+                    _ = &mut idle_sleep => {
+                        snapshot.network_idle = true;
+                        idle_timer = None;
+                    }
+                    message = ws_stream.next() => {
+                        idle_timer = Some(idle_sleep);
+                        let message = match message {
+                            Some(Ok(message)) => message,
+                            Some(Err(error)) => {
+                                tracing::debug!("CDP websocket error: {}", error);
+                                return Ok(None);
+                            }
+                            None => return Ok(None),
+                        };
+
+                        let text = match message {
+                            Message::Text(text) => text.to_string(),
+                            Message::Binary(bytes) => {
+                                String::from_utf8(bytes.to_vec()).unwrap_or_default()
+                            }
+                            Message::Ping(_) | Message::Pong(_) | Message::Close(_) | Message::Frame(_) => continue,
+                        };
+
+                        let value: Value = match serde_json::from_str(&text) {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
+
+                        let method = value.get("method").and_then(|value| value.as_str());
+                        let params = value.get("params");
+
+                        match method {
+                            Some("Page.domContentEventFired") => {
+                                snapshot.domcontentloaded = true;
+                            }
+                            Some("Page.loadEventFired") => {
+                                snapshot.load = true;
+                            }
+                            Some("Page.lifecycleEvent") => {
+                                if let Some(name) = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()) {
+                                    match name {
+                                        "DOMContentLoaded" => snapshot.domcontentloaded = true,
+                                        "load" => snapshot.load = true,
+                                        "networkIdle" | "networkAlmostIdle" => snapshot.network_idle = true,
+                                        "commit" => snapshot.commit = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            Some("Page.frameNavigated") | Some("Page.frameStartedLoading") => {
+                                snapshot.commit = true;
+                            }
+                            Some("Network.requestWillBeSent") => {
+                                if let Some(request_id) = params
+                                    .and_then(|p| p.get("requestId"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    inflight.insert(request_id.to_string());
+                                    snapshot.network_idle = false;
+                                    idle_timer = None;
+                                }
+                            }
+                            Some("Network.loadingFinished") | Some("Network.loadingFailed") => {
+                                if let Some(request_id) = params
+                                    .and_then(|p| p.get("requestId"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    inflight.remove(request_id);
+                                }
+
+                                if inflight.is_empty() && idle_timer.is_none() {
+                                    idle_timer = Some(Box::pin(tokio::time::sleep(Duration::from_millis(500))));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            } else {
+                tokio::select! {
+                    _ = &mut sleep_until => {
+                        return Err(Error::timeout_duration("wait for load state via CDP", timeout));
+                    }
+                    message = ws_stream.next() => {
+                        let message = match message {
+                            Some(Ok(message)) => message,
+                            Some(Err(error)) => {
+                                tracing::debug!("CDP websocket error: {}", error);
+                                return Ok(None);
+                            }
+                            None => return Ok(None),
+                        };
+
+                        let text = match message {
+                            Message::Text(text) => text.to_string(),
+                            Message::Binary(bytes) => {
+                                String::from_utf8(bytes.to_vec()).unwrap_or_default()
+                            }
+                            Message::Ping(_) | Message::Pong(_) | Message::Close(_) | Message::Frame(_) => continue,
+                        };
+
+                        let value: Value = match serde_json::from_str(&text) {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
+
+                        let method = value.get("method").and_then(|value| value.as_str());
+                        let params = value.get("params");
+
+                        match method {
+                            Some("Page.domContentEventFired") => {
+                                snapshot.domcontentloaded = true;
+                            }
+                            Some("Page.loadEventFired") => {
+                                snapshot.load = true;
+                            }
+                            Some("Page.lifecycleEvent") => {
+                                if let Some(name) = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()) {
+                                    match name {
+                                        "DOMContentLoaded" => snapshot.domcontentloaded = true,
+                                        "load" => snapshot.load = true,
+                                        "networkIdle" | "networkAlmostIdle" => snapshot.network_idle = true,
+                                        "commit" => snapshot.commit = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            Some("Page.frameNavigated") | Some("Page.frameStartedLoading") => {
+                                snapshot.commit = true;
+                            }
+                            Some("Network.requestWillBeSent") => {
+                                if let Some(request_id) = params
+                                    .and_then(|p| p.get("requestId"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    inflight.insert(request_id.to_string());
+                                    snapshot.network_idle = false;
+                                    idle_timer = None;
+                                }
+                            }
+                            Some("Network.loadingFinished") | Some("Network.loadingFailed") => {
+                                if let Some(request_id) = params
+                                    .and_then(|p| p.get("requestId"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    inflight.remove(request_id);
+                                }
+
+                                if inflight.is_empty() && idle_timer.is_none() {
+                                    idle_timer = Some(Box::pin(tokio::time::sleep(Duration::from_millis(500))));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Navigate to a URL
     pub async fn goto(&self, url: &str) -> Result<()> {
         self.apply_slow_mo().await;
@@ -144,77 +571,108 @@ impl WebDriverAdapter {
         
         match state {
             WaitUntilState::Load => {
-                // Wait for document.readyState === 'complete'
-                loop {
-                    if start.elapsed() >= timeout {
-                        return Err(Error::timeout_duration("wait for load state: load", timeout));
+                let guard = self.driver().await?;
+                let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+
+                match tokio::time::timeout(timeout, driver.title()).await {
+                    Ok(Ok(_)) => {
+                        tracing::debug!("Load state 'load' reached via WebDriver");
+                        Ok(())
                     }
-                    
-                    let ready_state = self.execute_script("return document.readyState").await?;
-                    if ready_state.as_str() == Some("complete") {
-                        tracing::debug!("Load state 'load' reached");
-                        return Ok(());
-                    }
-                    
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    Ok(Err(error)) => Err(Error::ActionFailed(format!(
+                        "Failed to wait for load state 'load': {}",
+                        error
+                    ))),
+                    Err(_) => Err(Error::timeout_duration(
+                        "wait for load state: load",
+                        timeout,
+                    )),
                 }
             }
             WaitUntilState::DomContentLoaded => {
-                // Wait for document.readyState === 'interactive' or 'complete'
+                match self.wait_for_load_state_via_cdp(state, timeout).await {
+                    Ok(Some(())) => return Ok(()),
+                    Ok(None) => {}
+                    Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+                    Err(error) => {
+                        tracing::debug!("CDP load state wait failed, falling back to JS: {}", error);
+                    }
+                }
+
+                // WebDriver does not expose DOMContentLoaded, fallback to JS polling.
                 loop {
                     if start.elapsed() >= timeout {
-                        return Err(Error::timeout_duration("wait for load state: domcontentloaded", timeout));
+                        return Err(Error::timeout_duration(
+                            "wait for load state: domcontentloaded",
+                            timeout,
+                        ));
                     }
-                    
+
                     let ready_state = self.execute_script("return document.readyState").await?;
                     let state_str = ready_state.as_str();
                     if state_str == Some("interactive") || state_str == Some("complete") {
                         tracing::debug!("Load state 'domcontentloaded' reached");
                         return Ok(());
                     }
-                    
+
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
             WaitUntilState::NetworkIdle => {
-                // Wait for no network activity for at least 500ms
-                // This is a simplified implementation - full Playwright uses CDP
-                // For now, just wait for load state and add 500ms
+                match self.wait_for_load_state_via_cdp(state, timeout).await {
+                    Ok(Some(())) => return Ok(()),
+                    Ok(None) => {}
+                    Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+                    Err(error) => {
+                        tracing::debug!("CDP load state wait failed, falling back to JS: {}", error);
+                    }
+                }
+
+                // WebDriver does not expose network idle, fallback to JS polling.
                 loop {
                     if start.elapsed() >= timeout {
-                        return Err(Error::timeout_duration("wait for load state: networkidle", timeout));
+                        return Err(Error::timeout_duration(
+                            "wait for load state: networkidle",
+                            timeout,
+                        ));
                     }
-                    
+
                     let ready_state = self.execute_script("return document.readyState").await?;
                     if ready_state.as_str() == Some("complete") {
-                        // Wait additional 500ms for network to settle
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        
-                        // Verify still complete after wait
+
                         let ready_state = self.execute_script("return document.readyState").await?;
                         if ready_state.as_str() == Some("complete") {
                             tracing::debug!("Load state 'networkidle' reached");
                             return Ok(());
                         }
                     }
-                    
+
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
             WaitUntilState::Commit => {
-                // Commit state is reached when navigation is committed
-                // For WebDriver, we consider this equivalent to DomContentLoaded
+                match self.wait_for_load_state_via_cdp(state, timeout).await {
+                    Ok(Some(())) => return Ok(()),
+                    Ok(None) => {}
+                    Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+                    Err(error) => {
+                        tracing::debug!("CDP load state wait failed, falling back to JS: {}", error);
+                    }
+                }
+
+                // WebDriver does not expose commit state, fallback to JS polling.
                 loop {
                     if start.elapsed() >= timeout {
                         return Err(Error::timeout_duration("wait for load state: commit", timeout));
                     }
-                    
+
                     let ready_state = self.execute_script("return document.readyState").await?;
                     if ready_state.as_str() != Some("loading") {
                         tracing::debug!("Load state 'commit' reached");
                         return Ok(());
                     }
-                    
+
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
@@ -235,6 +693,14 @@ impl WebDriverAdapter {
         let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
         let title = driver.title().await?;
         Ok(title)
+    }
+
+    /// Get the current page source as HTML
+    pub async fn page_source(&self) -> Result<String> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let source = driver.source().await?;
+        Ok(source)
     }
 
     /// Find an element by CSS selector
@@ -288,29 +754,10 @@ impl WebDriverAdapter {
         };
         
         tracing::debug!("Found iframe with selector: {}", frame_selector);
-        
-        // Get the element ID for comparison
-        let target_id = target_frame.element_id();
-        
-        // Now find all iframes to get the index
-        let frames = driver.find_all(By::Tag("iframe")).await?;
-        
-        // Find the index of our target frame
-        for (idx, frame_elem) in frames.iter().enumerate() {
-            let frame_id = frame_elem.element_id();
-            if frame_id == target_id {
-                // Found it! Switch to this frame by index
-                driver.enter_frame(idx as u16).await?;
-                tracing::debug!("Switched to frame: {} (index: {})", frame_selector, idx);
-                return Ok(());
-            }
-        }
-        
-        // This shouldn't happen, but handle it just in case
-        Err(Error::ActionFailed(format!(
-            "Found frame with selector '{}' but couldn't determine its index",
-            frame_selector
-        )))
+
+        target_frame.enter_frame().await?;
+        tracing::debug!("Switched to frame: {}", frame_selector);
+        Ok(())
     }
 
     /// Switch to a frame by WebElement reference
@@ -320,25 +767,11 @@ impl WebDriverAdapter {
     pub async fn switch_to_frame(&self, frame_element: &WebElement) -> Result<()> {
         self.apply_slow_mo().await;
         let guard = self.driver().await?;
-        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
-        
-        // Find all iframes and locate the index of our element
-        let frames = driver.find_all(By::Tag("iframe")).await?;
-        
-        for (idx, frame_elem) in frames.iter().enumerate() {
-            // Compare element IDs or use JavaScript to check equality
-            let script = r#"return arguments[0] === arguments[1];"#;
-            let args = vec![frame_element.to_json()?, frame_elem.to_json()?];
-            let is_same = self.execute_script_with_args(script, args).await?;
-            
-            if is_same.as_bool().unwrap_or(false) {
-                driver.enter_frame(idx as u16).await?;
-                tracing::debug!("Switched to frame");
-                return Ok(());
-            }
-        }
-        
-        Err(Error::ActionFailed("Frame element not found in page".to_string()))
+        let _driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+
+        frame_element.clone().enter_frame().await?;
+        tracing::debug!("Switched to frame");
+        Ok(())
     }
 
     /// Switch to the default content (main page context)
@@ -480,58 +913,56 @@ impl WebDriverAdapter {
     /// Get the browser version
     ///
     /// Returns the browser version string (e.g., "145.0.7632.6")
-    /// Uses Chrome DevTools Protocol for accurate version information.
     pub async fn browser_version(&self) -> Result<String> {
         let guard = self.driver().await?;
         let _driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
-        
-        // Try Chrome DevTools Protocol first (works for Chrome/Chromium/Edge)
-        // This gives us the most accurate version information
+
+        if let Some(capabilities) = self.session_capabilities().await? {
+            if let Some(version) = Self::extract_browser_version(&capabilities) {
+                return Ok(version);
+            }
+        }
+
+        if let Some(requested) = self.requested_capabilities.as_ref() {
+            if let Some(version) = Self::extract_browser_version(&serde_json::Value::Object(requested.clone())) {
+                return Ok(version);
+            }
+        }
+
         let cdp_guard = self.cdp().await?;
         let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
-        
+
         if let Ok(version_info) = dev_tools.execute_cdp("Browser.getVersion").await {
-            // Extract browser version from CDP response
-            // The "product" field contains "Chrome/145.0.7632.6" format
             if let Some(product) = version_info.get("product") {
                 if let Some(product_str) = product.as_str() {
-                    // Extract version number from "Chrome/145.0.7632.6"
                     if let Some(version) = product_str.split('/').nth(1) {
                         return Ok(version.to_string());
                     }
                 }
             }
         }
-        
-        // Fallback: Use JavaScript to get browser version from user agent
-        // This works across all browsers (Chrome, Firefox, Safari, Edge, etc.)
-        drop(cdp_guard); // Release CDP lock before calling execute_script
+
+        drop(cdp_guard);
         let result = self.execute_script("return navigator.userAgent").await?;
         if let Some(ua) = result.as_str() {
-            // Try to extract version from user agent
-            // Chrome UA format: "... Chrome/145.0.7632.6 ..."
-            // Edge UA format: "... Edg/145.0.7632.6 ..."
             if let Some(start) = ua.find("Chrome/") {
-                let version_start = start + 7; // Length of "Chrome/"
+                let version_start = start + 7;
                 if let Some(end) = ua[version_start..].find(' ') {
                     return Ok(ua[version_start..version_start + end].to_string());
-                } else {
-                    return Ok(ua[version_start..].to_string());
                 }
-            } else if let Some(start) = ua.find("Edg/") {
-                let version_start = start + 4; // Length of "Edg/"
-                if let Some(end) = ua[version_start..].find(' ') {
-                    return Ok(ua[version_start..version_start + end].to_string());
-                } else {
-                    return Ok(ua[version_start..].to_string());
-                }
+                return Ok(ua[version_start..].to_string());
             }
-            
-            // Fallback to full user agent if we can't parse it
+            if let Some(start) = ua.find("Edg/") {
+                let version_start = start + 4;
+                if let Some(end) = ua[version_start..].find(' ') {
+                    return Ok(ua[version_start..version_start + end].to_string());
+                }
+                return Ok(ua[version_start..].to_string());
+            }
+
             return Ok(ua.to_string());
         }
-        
-        // If all else fails, return unknown
+
         Ok("Unknown".to_string())
     }
 
@@ -650,6 +1081,123 @@ impl WebDriverAdapter {
         Ok(())
     }
 
+    async fn get_storage_for_origin_via_cdp(
+        &self,
+        origin: &str,
+    ) -> Result<(Vec<crate::core::storage::NameValue>, Vec<crate::core::storage::NameValue>)> {
+        use crate::core::storage::NameValue;
+        use serde_json::json;
+
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let _ = dev_tools.execute_cdp("DOMStorage.enable").await;
+
+        async fn fetch_items(
+            dev_tools: &ChromeDevTools,
+            origin: &str,
+            is_local_storage: bool,
+        ) -> Result<Vec<NameValue>> {
+            let params = json!({
+                "storageId": {
+                    "securityOrigin": origin,
+                    "isLocalStorage": is_local_storage
+                }
+            });
+
+            let result = dev_tools
+                .execute_cdp_with_params("DOMStorage.getDOMStorageItems", params)
+                .await
+                .map_err(|e| {
+                    Error::ActionFailed(format!(
+                        "Failed to get DOM storage via CDP (local={is_local_storage}): {e}"
+                    ))
+                })?;
+
+            let items_json = result
+                .get("items")
+                .ok_or_else(|| Error::ActionFailed("CDP response missing 'items' field".to_string()))?;
+
+            let pairs: Vec<Vec<String>> = serde_json::from_value(items_json.clone())
+                .map_err(|e| Error::ActionFailed(format!("Failed to parse DOMStorage items: {e}")))?;
+
+            let mut storage = Vec::with_capacity(pairs.len());
+            for pair in pairs {
+                if pair.len() == 2 {
+                    storage.push(NameValue {
+                        name: pair[0].clone(),
+                        value: pair[1].clone(),
+                    });
+                }
+            }
+
+            Ok(storage)
+        }
+
+        let local_storage = fetch_items(dev_tools, origin, true).await?;
+        let session_storage = fetch_items(dev_tools, origin, false).await?;
+        Ok((local_storage, session_storage))
+    }
+
+    async fn set_storage_for_origin_via_cdp(
+        &self,
+        origin: &str,
+        local_storage: &[crate::core::storage::NameValue],
+        session_storage: &[crate::core::storage::NameValue],
+    ) -> Result<()> {
+        use serde_json::json;
+
+        let cdp_guard = self.cdp().await?;
+        let dev_tools = cdp_guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let _ = dev_tools.execute_cdp("DOMStorage.enable").await;
+
+        let local_storage_id = json!({
+            "securityOrigin": origin,
+            "isLocalStorage": true
+        });
+        let session_storage_id = json!({
+            "securityOrigin": origin,
+            "isLocalStorage": false
+        });
+
+        for item in local_storage {
+            let params = json!({
+                "storageId": local_storage_id.clone(),
+                "key": &item.name,
+                "value": &item.value,
+            });
+
+            dev_tools
+                .execute_cdp_with_params("DOMStorage.setDOMStorageItem", params)
+                .await
+                .map_err(|e| {
+                    Error::ActionFailed(format!(
+                        "Failed to set localStorage item '{}': {}",
+                        item.name, e
+                    ))
+                })?;
+        }
+
+        for item in session_storage {
+            let params = json!({
+                "storageId": session_storage_id.clone(),
+                "key": &item.name,
+                "value": &item.value,
+            });
+
+            dev_tools
+                .execute_cdp_with_params("DOMStorage.setDOMStorageItem", params)
+                .await
+                .map_err(|e| {
+                    Error::ActionFailed(format!(
+                        "Failed to set sessionStorage item '{}': {}",
+                        item.name, e
+                    ))
+                })?;
+        }
+
+        Ok(())
+    }
+
     /// Get localStorage and sessionStorage for a given origin
     ///
     /// Requires an open page at the origin.
@@ -657,6 +1205,14 @@ impl WebDriverAdapter {
     pub async fn get_storage_for_origin(&self, origin: &str) -> Result<(Vec<crate::core::storage::NameValue>, Vec<crate::core::storage::NameValue>)> {
         use crate::core::storage::NameValue;
         
+        match self.get_storage_for_origin_via_cdp(origin).await {
+            Ok(storage) => return Ok(storage),
+            Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+            Err(error) => {
+                tracing::debug!("CDP storage read failed, falling back to JS: {}", error);
+            }
+        }
+
         // Script to extract localStorage and sessionStorage
         let script = r#"
             return {
@@ -691,6 +1247,26 @@ impl WebDriverAdapter {
     ///
     /// Must be called on a page that is already loaded at the target origin.
     pub async fn set_storage(&self, local_storage: &[crate::core::storage::NameValue], session_storage: &[crate::core::storage::NameValue]) -> Result<()> {
+        if let Ok(url) = self.current_url().await {
+            if let Ok(parsed) = Url::parse(&url) {
+                if let Some(origin) = Self::origin_from_url(&parsed) {
+                    match self
+                        .set_storage_for_origin_via_cdp(&origin, local_storage, session_storage)
+                        .await
+                    {
+                        Ok(()) => return Ok(()),
+                        Err(Error::BrowserClosed) => return Err(Error::BrowserClosed),
+                        Err(error) => {
+                            tracing::debug!(
+                                "CDP storage write failed, falling back to JS: {}",
+                                error
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // Set localStorage
         for item in local_storage {
             let script = format!(
