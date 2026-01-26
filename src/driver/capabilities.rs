@@ -18,6 +18,7 @@ pub struct ChromiumCapabilities {
     prefs: HashMap<String, serde_json::Value>,
     downloads_path: Option<PathBuf>,
     stealth: Option<StealthOptions>,
+    w3c: bool,
 }
 
 impl ChromiumCapabilities {
@@ -31,6 +32,7 @@ impl ChromiumCapabilities {
             prefs: HashMap::new(),
             downloads_path: None,
             stealth: None,
+            w3c: false,
         }
     }
 
@@ -99,6 +101,12 @@ impl ChromiumCapabilities {
         self
     }
 
+    /// Enable or disable W3C mode for ChromeDriver
+    pub fn w3c(mut self, w3c: bool) -> Self {
+        self.w3c = w3c;
+        self
+    }
+
     /// Add proxy configuration via command-line arguments
     pub fn proxy(mut self, server: &str, bypass: Option<&str>) -> Self {
         self.args.push(format!("--proxy-server={}", server));
@@ -145,6 +153,7 @@ impl ChromiumCapabilities {
 
         let mut chrome_options = json!({
             "args": args,
+            "w3c": self.w3c,
         });
 
         // Add binary path if specified
