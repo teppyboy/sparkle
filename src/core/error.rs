@@ -39,7 +39,7 @@ pub enum Error {
 
     /// Error from the underlying WebDriver implementation
     #[error("WebDriver error: {0}")]
-    WebDriver(#[from] thirtyfour::error::WebDriverError),
+    WebDriver(thirtyfour::error::WebDriverError),
 
     /// Network-related error
     #[error("Network error: {0}")]
@@ -155,6 +155,26 @@ pub enum Error {
 ///
 /// This is a convenience alias for Result<T, Error> used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<thirtyfour::error::WebDriverError> for Error {
+    #[track_caller]
+    fn from(error: thirtyfour::error::WebDriverError) -> Self {
+        let location = std::panic::Location::caller();
+        let backtrace = std::backtrace::Backtrace::force_capture();
+
+        tracing::error!(
+            target: "sparkle::webdriver",
+            error = %error,
+            file = location.file(),
+            line = location.line(),
+            column = location.column(),
+            backtrace = ?backtrace,
+            "WebDriver error"
+        );
+
+        Self::WebDriver(error)
+    }
+}
 
 impl Error {
     /// Create a timeout error
