@@ -9,6 +9,7 @@ pub mod cdp_session;
 pub mod element_handle;
 pub mod frame_locator;
 pub mod locator;
+pub mod mouse;
 pub mod playwright;
 
 // Re-export main types
@@ -18,4 +19,5 @@ pub use cdp_session::CDPSession;
 pub use element_handle::ElementHandle;
 pub use frame_locator::{FrameLocator, ElementInFrame};
 pub use locator::Locator;
+pub use mouse::{Mouse, MouseClickOptions, MoveOptions};
 pub use playwright::Playwright;

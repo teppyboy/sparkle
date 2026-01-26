@@ -2,7 +2,7 @@
 //!
 //! This module implements the Browser class which represents a browser instance.
 
-use crate::async_api::{Locator, FrameLocator};
+use crate::async_api::{Locator, FrameLocator, Mouse};
 use crate::async_api::CDPSession;
 use crate::core::{BrowserContextOptions, ClickOptions, Error, Result, TypeOptions};
 use crate::driver::{ChromeDriverProcess, WebDriverAdapter};
@@ -713,6 +713,26 @@ impl Page {
     /// ```
     pub fn frame_locator(&self, selector: &str) -> FrameLocator {
         FrameLocator::new(Arc::clone(&self.adapter), selector)
+    }
+
+    /// Get the mouse instance for human-like mouse interactions
+    ///
+    /// Returns a Mouse instance that can be used for realistic mouse movements
+    /// and clicks, which is useful for bypassing anti-bot systems.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Page;
+    /// # use sparkle::async_api::MouseClickOptions;
+    /// # async fn example(page: &Page) -> sparkle::core::Result<()> {
+    /// let mouse = page.mouse();
+    /// let element = page.locator("#captcha-checkbox").find_element().await?;
+    /// mouse.click_element(&element, MouseClickOptions::default()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn mouse(&self) -> Mouse {
+        Mouse::new(Arc::clone(&self.adapter))
     }
 
     /// Click an element matching the selector

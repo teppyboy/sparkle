@@ -61,6 +61,24 @@ impl Locator {
         &self.selector
     }
 
+    /// Get the underlying WebElement for advanced interactions
+    ///
+    /// This method waits for the element to be present and returns the WebElement.
+    /// Useful for advanced operations like mouse emulation.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use sparkle::async_api::Page;
+    /// # async fn example(page: &Page) -> sparkle::core::Result<()> {
+    /// let element = page.locator("#captcha").element().await?;
+    /// // Use element for advanced operations
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn element(&self) -> Result<WebElement> {
+        self.find_element().await
+    }
+
     /// Find the element with auto-waiting
     ///
     /// This method waits for the element to be present in the DOM.

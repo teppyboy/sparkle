@@ -1,8 +1,7 @@
 # Sparkle
 
 > [!WARNING]
-> This project is mostly "vibe-coded", unknown bugs will appear at any time. While I try to fix it (either by vibing or actually coding),
-> not all bugs are guaranteed to be fixed.
+> This project is mostly "vibe-coded", **many** features are not properly implemented (by using hacky workaround, etc.), unknown bugs will appear at any time. While I try to fix it (either by vibing or actually coding), not all bugs are guaranteed to be fixed.
 
 > A reimplementation of Playwright written in Rust, powered by `thirtyfour`.
 
@@ -12,23 +11,32 @@ Sparkle brings Playwright's API to Rust with async support.
 
 ## Features
 
-- **Async/Await** - Built on Tokio for efficient async operations
-- **Auto-Waiting Locators** - Modern element selection that handles timing
+- **Playwright-like API** - Easy migration from Python to Rust
 - **CLI Tool** - Automatic browser/driver download and management
 - **Playwright Compatible** - Shares browser cache with Playwright installations
 - **Zero Config** - ChromeDriver auto-launches and manages itself
 - **Fast & Ergonomic** - Idiomatic Rust with minimal boilerplate
 
+### Implemented features
+
+These are the features that I've tested to see whether it works or not.
+
+| Feature | Working |
+|---------|---------|
+|Locator|    ✅    |
+|Locator (iframe)|   ❌      |
+|         |         |
+
 ## Documentation
 
-Documentation is available at https://sparkle.tretrauit.me, and maybe https://docs.rs if I publish this crate later.
+Documentation is available at https://sparkle.tretrauit.me, ~~and maybe https://docs.rs if I publish this crate later.~~
 
 ## Installation
 
 ### 1. Install Sparkle CLI
 
 ```bash
-cargo install --path .
+cargo install --git https://github.com/teppyboy/sparkle
 ```
 
 ### 2. Download Browser
@@ -59,13 +67,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 ```
-
-### 4. Run It
-
-```bash
-cargo run --example your_script
-```
-
 
 ## CLI
 
