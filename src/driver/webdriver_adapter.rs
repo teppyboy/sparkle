@@ -11,7 +11,6 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use http::Method;
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::{json, Value};
 use thirtyfour::common::command::{Command, ExtensionCommand};
 use thirtyfour::error::WebDriverErrorInner;
@@ -44,22 +43,9 @@ struct LoadStateSnapshot {
     commit: bool,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum AnyElementRef {
-    Element {
-        #[serde(rename = "element-6066-11e4-a52e-4f735466cecf")]
-        id: String,
-    },
-    ShadowElement {
-        #[serde(rename = "shadow-6066-11e4-a52e-4f735466cecf")]
-        id: String,
-    },
-    Legacy {
-        #[serde(rename = "ELEMENT")]
-        id: String,
-    },
-}
+const W3C_ELEMENT_KEY: &str = "element-6066-11e4-a52e-4f735466cecf";
+const W3C_SHADOW_KEY: &str = "shadow-6066-11e4-a52e-4f735466cecf";
+const LEGACY_ELEMENT_KEY: &str = "ELEMENT";
 
 
 #[derive(Debug)]
@@ -280,20 +266,42 @@ impl WebDriverAdapter {
         value: Value,
         handle: Arc<thirtyfour::session::handle::SessionHandle>,
     ) -> Result<WebElement> {
-        let element_ref: AnyElementRef = serde_json::from_value(value)?;
-        let element_json = match element_ref {
-            AnyElementRef::Element { id } => {
-                json!({"element-6066-11e4-a52e-4f735466cecf": id})
-            }
-            AnyElementRef::ShadowElement { id } => {
-                json!({"shadow-6066-11e4-a52e-4f735466cecf": id})
-            }
-            AnyElementRef::Legacy { id } => {
-                json!({"element-6066-11e4-a52e-4f735466cecf": id})
-            }
+        let element_id = Self::extract_element_id(&value)
+            .ok_or_else(|| Error::ActionFailed("Failed to parse element reference".to_string()))?;
+
+        let element_json = json!({W3C_ELEMENT_KEY: element_id});
+        WebElement::from_json(element_json, handle).map_err(Error::from)
+    }
+
+    fn extract_element_id(value: &Value) -> Option<String> {
+        if let Some(id) = Self::extract_element_id_for_key(value, W3C_ELEMENT_KEY) {
+            return Some(id);
+        }
+        if let Some(id) = Self::extract_element_id_for_key(value, W3C_SHADOW_KEY) {
+            return Some(id);
+        }
+        if let Some(id) = Self::extract_element_id_for_key(value, LEGACY_ELEMENT_KEY) {
+            return Some(id);
+        }
+
+        match value {
+            Value::String(id) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    fn extract_element_id_for_key(value: &Value, key: &str) -> Option<String> {
+        let map = match value.as_object() {
+            Some(map) => map,
+            None => return None,
         };
 
-        WebElement::from_json(element_json, handle).map_err(Error::from)
+        let nested = map.get(key)?;
+        match nested {
+            Value::String(id) => Some(id.clone()),
+            Value::Object(_) => Self::extract_element_id(nested),
+            _ => None,
+        }
     }
 
     async fn find_element_raw(&self, selector: &str) -> Result<WebElement> {
