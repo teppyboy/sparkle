@@ -5,13 +5,35 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use serde_json::json;
+use thirtyfour::common::types::ElementRect;
 use thirtyfour::prelude::*;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
+use crate::async_api::ElementInFrame;
 use crate::core::{Error, Result};
 use crate::driver::WebDriverAdapter;
+
+#[async_trait]
+pub trait MouseTarget {
+    async fn rect(&self) -> Result<ElementRect>;
+}
+
+#[async_trait]
+impl MouseTarget for WebElement {
+    async fn rect(&self) -> Result<ElementRect> {
+        self.rect().await.map_err(Error::from)
+    }
+}
+
+#[async_trait]
+impl MouseTarget for ElementInFrame {
+    async fn rect(&self) -> Result<ElementRect> {
+        self.element_rect().await
+    }
+}
 
 /// Mouse emulation for human-like interactions
 pub struct Mouse {
@@ -115,7 +137,10 @@ impl Mouse {
     /// # Arguments
     /// * `element` - Target element
     /// * `options` - Movement options
-    pub async fn move_to_element(&self, element: &WebElement, options: MoveOptions) -> Result<()> {
+    pub async fn move_to_element<T>(&self, element: &T, options: MoveOptions) -> Result<()>
+    where
+        T: MouseTarget + ?Sized,
+    {
         // Get element's location and size
         let rect = element.rect().await?;
         

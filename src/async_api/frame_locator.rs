@@ -3,10 +3,13 @@
 //!  FrameLocator represents a view into an iframe on the page. It provides methods
 //! to interact with elements inside iframes.
 
-use crate::core::{ClickOptions, Error, Result, TypeOptions};
-use crate::driver::WebDriverAdapter;
 use std::sync::Arc;
 use std::time::Duration;
+
+use thirtyfour::common::types::ElementRect;
+
+use crate::core::{ClickOptions, Error, Result, TypeOptions};
+use crate::driver::WebDriverAdapter;
 
 /// Represents a locator scoped to an iframe
 ///
@@ -165,6 +168,24 @@ pub struct ElementInFrame {
 }
 
 impl ElementInFrame {
+    pub(crate) async fn element_rect(&self) -> Result<ElementRect> {
+        self.frame_locator.switch_to_frame_context().await?;
+
+        let result = async {
+            let element = self
+                .frame_locator
+                .adapter
+                .find_element(&self.element_selector)
+                .await?;
+            element.rect().await.map_err(Error::from)
+        }
+        .await;
+
+        self.frame_locator.adapter.switch_to_default_content().await?;
+
+        result
+    }
+
     /// Click the element within the frame
     pub async fn click(&self, _options: ClickOptions) -> Result<()> {
         // Switch to frame context

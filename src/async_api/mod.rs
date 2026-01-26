@@ -19,5 +19,5 @@ pub use cdp_session::CDPSession;
 pub use element_handle::ElementHandle;
 pub use frame_locator::{FrameLocator, ElementInFrame};
 pub use locator::Locator;
-pub use mouse::{Mouse, MouseClickOptions, MoveOptions};
+pub use mouse::{Mouse, MouseClickOptions, MoveOptions, MouseTarget};
 pub use playwright::Playwright;
