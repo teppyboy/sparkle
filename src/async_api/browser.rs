@@ -425,6 +425,7 @@ impl BrowserContext {
     ///
     /// Sets cookies and storage from a StorageState object.
     /// This is called during context creation when storage_state option is provided.
+    ///
     pub(crate) async fn apply_storage_state(&self, state: &crate::core::StorageState) -> Result<()> {
         tracing::debug!("Applying storage state: {} cookies, {} origins", 
             state.cookies.len(), state.origins.len());

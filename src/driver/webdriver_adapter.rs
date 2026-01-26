@@ -561,6 +561,7 @@ impl WebDriverAdapter {
     /// * `state` - The load state to wait for (Load, DomContentLoaded, NetworkIdle)
     /// * `timeout` - Maximum time to wait
     ///
+    ///
     /// # Returns
     /// Ok(()) if the state is reached, Err if timeout or other error occurs
     pub async fn wait_for_load_state(&self, state: crate::core::WaitUntilState, timeout: Duration) -> Result<()> {
@@ -913,6 +914,7 @@ impl WebDriverAdapter {
     /// Get the browser version
     ///
     /// Returns the browser version string (e.g., "145.0.7632.6")
+    ///
     pub async fn browser_version(&self) -> Result<String> {
         let guard = self.driver().await?;
         let _driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
@@ -1202,6 +1204,7 @@ impl WebDriverAdapter {
     ///
     /// Requires an open page at the origin.
     /// Returns (localStorage, sessionStorage) as vectors of name-value pairs.
+    ///
     pub async fn get_storage_for_origin(&self, origin: &str) -> Result<(Vec<crate::core::storage::NameValue>, Vec<crate::core::storage::NameValue>)> {
         use crate::core::storage::NameValue;
         
@@ -1246,6 +1249,7 @@ impl WebDriverAdapter {
     /// Set localStorage and sessionStorage for the current page
     ///
     /// Must be called on a page that is already loaded at the target origin.
+    ///
     pub async fn set_storage(&self, local_storage: &[crate::core::storage::NameValue], session_storage: &[crate::core::storage::NameValue]) -> Result<()> {
         if let Ok(url) = self.current_url().await {
             if let Ok(parsed) = Url::parse(&url) {
