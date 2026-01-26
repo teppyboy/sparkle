@@ -11,8 +11,10 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use http::Method;
 use reqwest::Client;
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use thirtyfour::common::command::{Command, ExtensionCommand};
+use thirtyfour::error::WebDriverErrorInner;
 use thirtyfour::extensions::cdp::ChromeDevTools;
 use thirtyfour::prelude::*;
 use tokio::sync::RwLock;
@@ -41,6 +43,24 @@ struct LoadStateSnapshot {
     network_idle: bool,
     commit: bool,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AnyElementRef {
+    Element {
+        #[serde(rename = "element-6066-11e4-a52e-4f735466cecf")]
+        id: String,
+    },
+    ShadowElement {
+        #[serde(rename = "shadow-6066-11e4-a52e-4f735466cecf")]
+        id: String,
+    },
+    Legacy {
+        #[serde(rename = "ELEMENT")]
+        id: String,
+    },
+}
+
 
 #[derive(Debug)]
 struct GetSessionCommand;
@@ -254,6 +274,74 @@ impl WebDriverAdapter {
             WaitUntilState::NetworkIdle => snapshot.network_idle,
             WaitUntilState::Commit => snapshot.commit || snapshot.domcontentloaded || snapshot.load,
         }
+    }
+
+    fn element_from_value(
+        value: Value,
+        handle: Arc<thirtyfour::session::handle::SessionHandle>,
+    ) -> Result<WebElement> {
+        let element_ref: AnyElementRef = serde_json::from_value(value)?;
+        let element_json = match element_ref {
+            AnyElementRef::Element { id } => {
+                json!({"element-6066-11e4-a52e-4f735466cecf": id})
+            }
+            AnyElementRef::ShadowElement { id } => {
+                json!({"shadow-6066-11e4-a52e-4f735466cecf": id})
+            }
+            AnyElementRef::Legacy { id } => {
+                json!({"element-6066-11e4-a52e-4f735466cecf": id})
+            }
+        };
+
+        WebElement::from_json(element_json, handle).map_err(Error::from)
+    }
+
+    async fn find_element_raw(&self, selector: &str) -> Result<WebElement> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let response = match driver
+            .handle
+            .cmd(Command::FindElement(By::Css(selector).into()))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if matches!(&*error, WebDriverErrorInner::NoSuchElement(_)) {
+                    return Err(Error::element_not_found(selector));
+                }
+                return Err(Error::from(error));
+            }
+        };
+
+        let value = response.value_json()?;
+        Self::element_from_value(value, driver.handle.clone())
+    }
+
+    async fn find_elements_raw(&self, selector: &str) -> Result<Vec<WebElement>> {
+        let guard = self.driver().await?;
+        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
+        let response = match driver
+            .handle
+            .cmd(Command::FindElements(By::Css(selector).into()))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if matches!(&*error, WebDriverErrorInner::NoSuchElement(_))
+                    || matches!(&*error, WebDriverErrorInner::NotFound(_, _))
+                {
+                    return Ok(Vec::new());
+                }
+                return Err(Error::from(error));
+            }
+        };
+
+        let values: Vec<Value> = serde_json::from_value(response.value_json()?)?;
+        let mut elements = Vec::with_capacity(values.len());
+        for value in values {
+            elements.push(Self::element_from_value(value, driver.handle.clone())?);
+        }
+        Ok(elements)
     }
 
     async fn cdp_websocket_url_for_current_page(&self) -> Result<Option<String>> {
@@ -707,21 +795,12 @@ impl WebDriverAdapter {
     /// Find an element by CSS selector
     pub async fn find_element(&self, selector: &str) -> Result<WebElement> {
         self.apply_slow_mo().await;
-        let guard = self.driver().await?;
-        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
-        let element = driver
-            .find(By::Css(selector))
-            .await
-            .map_err(|_| Error::element_not_found(selector))?;
-        Ok(element)
+        self.find_element_raw(selector).await
     }
 
     /// Find all elements matching a CSS selector
     pub async fn find_elements(&self, selector: &str) -> Result<Vec<WebElement>> {
-        let guard = self.driver().await?;
-        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
-        let elements = driver.find_all(By::Css(selector)).await?;
-        Ok(elements)
+        self.find_elements_raw(selector).await
     }
 
     /// Switch to a frame by CSS selector
@@ -732,25 +811,23 @@ impl WebDriverAdapter {
     /// * `frame_selector` - CSS selector to locate the iframe element
     pub async fn switch_to_frame_by_selector(&self, frame_selector: &str) -> Result<()> {
         self.apply_slow_mo().await;
-        
-        let guard = self.driver().await?;
-        let driver = guard.as_ref().ok_or(Error::BrowserClosed)?;
-        
+
         // Wait for the iframe to appear (with retry logic)
         let timeout = Duration::from_secs(30);
         let start = std::time::Instant::now();
         let target_frame = loop {
-            match driver.find(By::Css(frame_selector)).await {
+            match self.find_element_raw(frame_selector).await {
                 Ok(frame) => break frame,
-                Err(_) if start.elapsed() >= timeout => {
+                Err(Error::ElementNotFound { .. }) if start.elapsed() >= timeout => {
                     return Err(Error::timeout_duration(
                         &format!("iframe not found: {}", frame_selector),
                         timeout,
                     ));
                 }
-                Err(_) => {
+                Err(Error::ElementNotFound { .. }) => {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
+                Err(error) => return Err(error),
             }
         };
         
